@@ -12,6 +12,25 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
+## Teach the decoder in Shape Battle
+
+On the computer connected to NeuroPawn, start the existing Shape Battle app with the local headset bridge.
+
+```sh
+python -m imagery web --port /dev/cu.usbserial1234
+```
+
+Open `http://127.0.0.1:8765` in the browser on that computer. The bridge uses the bundled three-shape seed by default. Pass `--session` to use a different labeled calibration.
+
+1. Create or join a match and leave blind mode off for teaching.
+2. Click **Start brainwave read**. Choose your shape privately at GO.
+3. Review the prediction and its uncalibrated percentage. Select your intended shape and click **Confirm & lock**. The decoder records the feedback before the match receives the confirmed shape.
+4. When both players lock in, press **Battle**. Rematches reuse the player profiles.
+
+Keep the same browser, player name, and slot to continue a profile. Use distinct names for distinct wearers. Profiles live in `runs/web-players/` by default. The bridge binds to the local computer and serves only the browser assets. Supabase, when configured, handles the match and its submitted shape. The waveform, derived features, and personalized model stay on the headset computer.
+
+The hosted static version supports the existing demo and manual play. The Vercel build publishes only the web assets in `web-dist/`. For a drag-and-drop deployment, run the build command in `vercel.json` and select that output folder.
+
 ## Play and teach a personal decoder
 
 **Circle beats triangle. Triangle beats square. Square beats circle.** Matching shapes draw.

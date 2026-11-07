@@ -274,6 +274,14 @@ def play(args):
     play_game(args, load_session(args.session))
 
 
+def web(args):
+    from .web import run_web
+
+    if args.listen_port > 65535:
+        raise ValueError("Choose a listen port between 1 and 65535.")
+    run_web(args, load_session(args.session))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -316,6 +324,17 @@ def main():
     game.add_argument("--rounds", type=positive_int, default=12)
     game.add_argument("--imu", action="store_true", help="Use the Knight Board IMU variant")
     game.set_defaults(run=play)
+
+    bridge = commands.add_parser("web", help="Serve the Shape Battle web app with local EEG teaching")
+    bridge.add_argument("--port", required=True, help="USB serial port for the NeuroPawn")
+    bridge.add_argument("--imu", action="store_true", help="Use the Knight Board IMU variant")
+    bridge.add_argument("--session", type=Path,
+                        default=Path("runs/rps.npz"),
+                        help="Labeled three-move seed recording")
+    bridge.add_argument("--listen-port", type=positive_int, default=8765, help="Local browser port")
+    bridge.add_argument("--profiles", type=Path, default=Path("runs/web-players"),
+                        help="Local directory for player feedback profiles")
+    bridge.set_defaults(run=web)
 
     selection = commands.add_parser("select", help="Validate and draw with flicker-based EEG selection")
     selection.add_argument("--port", required=True, help="USB serial port for the NeuroPawn")

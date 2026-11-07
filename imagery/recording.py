@@ -234,7 +234,8 @@ def _show(cue: str, message: str = "") -> None:
 
 
 def capture_move(
-    board: NeuroPawn, *, seconds: float, skip: float, baseline_seconds: float = 2.0
+    board: NeuroPawn, *, seconds: float, skip: float, baseline_seconds: float = 2.0,
+    on_phase: Callable[[str], None] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Capture paired rest and private imagery with no shape on screen."""
     if not np.isfinite([seconds, skip, baseline_seconds]).all() or skip < 0:
@@ -245,13 +246,18 @@ def capture_move(
         raise ValueError("Rest and imagery durations must each span at least one sample.")
     duration = (imagery_samples + round(skip * board.fs)) / board.fs
 
-    _show("+")
+    if on_phase is None:
+        _show("+")
+    else:
+        on_phase("rest")
     time.sleep(0.5)  # Let typing or refixation after the previous round settle.
     baseline = board.capture(baseline_samples / board.fs)
     if np.any(adc_rail_mask(baseline)):
         raise ADCRailError("A NeuroPawn EEG channel clipped during rest.")
-    imagery = board.capture(duration, on_start=lambda: _show("+", "GO"))
-    _show("+")
+    go = (lambda: _show("+", "GO")) if on_phase is None else (lambda: on_phase("go"))
+    imagery = board.capture(duration, on_start=go)
+    if on_phase is None:
+        _show("+")
     if np.any(adc_rail_mask(imagery)):
         raise ADCRailError("A NeuroPawn EEG channel clipped during imagery.")
     return baseline, imagery[:, -imagery_samples:]

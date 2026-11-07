@@ -6,3 +6,4 @@ runs/
 *.sqlite3
 *.sqlite3-*
 .DS_Store
+web-dist/

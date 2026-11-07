@@ -1,7 +1,7 @@
 # NeurotechNCSU
 Repo hosting code for Neurotech event at NCSU Fall 2026
 
-[NeuroPawn EEG prototype and player teaching instructions](docs/neuropawn-imagery.md)
+[Teach the decoder in the web app](docs/neuropawn-imagery.md#teach-the-decoder-in-shape-battle) · [NeuroPawn EEG prototype and player teaching instructions](docs/neuropawn-imagery.md)
 
 ---
 
@@ -9,7 +9,7 @@ Repo hosting code for Neurotech event at NCSU Fall 2026
 
 By analyzing Fourier coefficients from brainwaves based on what shapes the user is thinking of, we are able to replicate this many times, allowing for 2 user to play against each other in a rough game of rock paper scissors using predetermined shapes. 
 
-Live site: drop "" into https://vercel.com/drop 
+For static hosting, deploy the repository with `vercel.json` or upload its `web-dist/` build output.
 
 This is a functioning prototype.
 
