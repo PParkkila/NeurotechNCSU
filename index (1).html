@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuroPawn Shape Battle</title>
+  <style>
+:root { --bg:#0e1116; --card:#171b23; --line:#2a303c; --text:#e9ecf3; --muted:#8d95a8; --accent:#cc0000; --good:#3ecf8e; --warn:#f5a524; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; color: var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: radial-gradient(1200px 600px at 50% -10%, #1c2230, var(--bg)); }
+.wrap { max-width: 1000px; margin: 0 auto; padding: 0 16px; }
+.head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 18px; padding-bottom: 6px; }
+h1 { margin: 0; font-size: 26px; } h1 span { color: var(--accent); } h2 { margin: 0 0 10px; font-size: 17px; } h3 { margin: 0; }
+.muted { color: var(--muted); } .tiny { font-size: 12px; } .err { color: #ff6b6b; } .hidden { display: none !important; }
+.pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+.pill.live { color: var(--good); border-color: var(--good); } .pill.demo { color: var(--warn); border-color: var(--warn); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 14px 0; }
+summary { cursor: pointer; font-weight: 600; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; } .row.c { justify-content: center; }
+input, select { background: #0f1218; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font: inherit; }
+input[type=text], input:not([type]) { flex: 1; min-width: 140px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+button { background: #222733; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; font: inherit; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); }
+button.huge { font-size: 22px; padding: 14px 40px; }
+.top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.code { font: 700 18px ui-monospace, monospace; letter-spacing: 2px; color: var(--accent); }
+.score { color: var(--muted); } .score b { color: var(--text); }
+.banner { text-align: center; font-size: 20px; margin: 10px 0; min-height: 30px; }
+.banner.result { font-size: 26px; font-weight: 700; color: var(--good); }
+.stage { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; }
+.vs { align-self: center; font-weight: 800; color: var(--muted); letter-spacing: 2px; }
+.slot { margin: 0; min-height: 400px; display: flex; flex-direction: column; transition: box-shadow .3s, border-color .3s; }
+.slot.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.slot.winner { border-color: var(--good); box-shadow: 0 0 0 2px var(--good), 0 0 32px #3ecf8e55; }
+.slotHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.slot.active .tag { color: #fff; background: var(--accent); border-color: var(--accent); }
+.slot.winner .tag { color: #06210f; background: var(--good); border-color: var(--good); }
+.slotBody { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 8px 0; }
+.back { width: 150px; height: 190px; border-radius: 14px; border: 2px dashed var(--line); color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: repeating-linear-gradient(45deg, #141922, #141922 8px, #181e29 8px, #181e29 16px); }
+.back > div { font-size: 44px; line-height: 1; } .back small { font-size: 13px; padding: 0 8px; }
+.back.locked { border: 2px solid var(--good); color: var(--good); }
+.face.pop { animation: pop .7s ease-out; } @keyframes pop { 0% { transform: rotateY(90deg) scale(.5); opacity: 0; } 100% { transform: none; opacity: 1; } }
+.shapeLabel { font-size: 22px; font-weight: 700; }
+.big { font-size: 64px; line-height: 1; font-weight: 800; } .big.go { color: var(--good); }
+.progress { width: 80%; height: 8px; border-radius: 6px; background: #0b0e13; overflow: hidden; }
+.progress i { display: block; width: 0; height: 100%; background: var(--accent); animation: fill linear forwards; } @keyframes fill { to { width: 100%; } }
+.picker { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.shapeBtn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 10px; font-size: 12px; }
+.shapeBtn.sel { border-color: var(--good); box-shadow: 0 0 0 1px var(--good); }
+.or { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.center { display: flex; gap: 10px; justify-content: center; margin: 18px 0 6px; }
+.rules { display: flex; flex-wrap: wrap; gap: 18px; } .rule { display: flex; align-items: center; gap: 8px; }
+.list { list-style: none; margin: 0; padding: 0; } .list li { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; } .list li:last-child { border: 0; }
+.list button { padding: 2px 8px; font-size: 12px; margin-left: 6px; }
+footer { padding: 18px 16px 40px; font-size: 13px; }
+@media (max-width: 760px) { .stage { grid-template-columns: 1fr; } .vs { justify-self: center; } .slot { min-height: 320px; } }
+</style>
+</head>
+<body>
+  <header>
+    <div class="wrap head">
+      <div>
+        <h1>NeuroPawn <span>Shape Battle</span></h1>
+        <div class="muted" id="eventName"></div>
+      </div>
+      <span id="modePill" class="pill"></span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <details class="card" id="setup" open>
+      <summary>Match setup</summary>
+      <div class="row">
+        <input id="newP1" placeholder="Player 1 name" maxlength="24">
+        <input id="newP2" placeholder="Player 2 name" maxlength="24">
+        <button id="btnNew" class="primary">New match</button>
+      </div>
+      <div class="row">
+        <input id="joinCode" placeholder="Match code" maxlength="8">
+        <button id="btnJoin">Open match</button>
+        <span id="joinMsg" class="err"></span>
+      </div>
+      <div class="row">
+        <label>This device is
+          <select id="role">
+            <option value="both">Both players (shared screen)</option>
+            <option value="1">Player 1 only</option>
+            <option value="2">Player 2 only</option>
+            <option value="display">Display only (Battle + results)</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="blind"> Blind mode: hide the EEG prediction and lock it in automatically</label>
+      </div>
+    </details>
+
+    <section id="arena" class="hidden">
+      <div class="top"><span id="codeShow" class="code"></span><div id="scoreboard" class="score"></div></div>
+      <p id="turnBanner" class="banner"></p>
+      <div class="stage" id="stage">
+        <div class="slot card" id="slot1"></div>
+        <div class="vs">VS</div>
+        <div class="slot card" id="slot2"></div>
+      </div>
+      <div class="center">
+        <button id="btnBattle" class="primary huge" disabled>⚔ Battle</button>
+        <button id="btnRematch" class="hidden">Rematch</button>
+      </div>
+    </section>
+
+    <section class="card"><h2>Rules</h2><div id="rules" class="rules"></div></section>
+    <section class="card"><h2>Recent matches</h2><ul id="history" class="list"></ul></section>
+  </main>
+
+  <footer class="wrap muted">NeuroTech NCSU · NeuroPawn · [FILL IN: team / links]</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+/* ===================== SETTINGS: edit this block (event name, rules, EEG source, Supabase keys) ===================== */
+// ------------------------------------------------------------------
+// NeuroPawn Shape Battle: settings. Everything you might want to tweak is here.
+// ------------------------------------------------------------------
+window.NEUROPAWN_CONFIG = {
+  EVENT_NAME: "[FILL IN: event name / date]",
+
+  // Who beats whom: "key beats value". Square beats triangle, triangle beats circle, circle beats square.
+  // If you change this, also change beats() in supabase/schema.sql (only needed when using Supabase).
+  BEATS: { square: "triangle", triangle: "circle", circle: "square" },
+
+  // "demo"    = the Start button runs the rest/GO countdown, then picks a RANDOM shape (for testing the flow)
+  // "headset" = the page waits for your Python decoder to send each player's shape (needs Supabase, see README)
+  EEG_SOURCE: "demo",
+  REST_SECONDS: 2,      // matches the 2 s rest window in the Python recorder
+  IMAGERY_SECONDS: 4,   // matches the 4 s imagery window
+
+  // Supabase (optional). Leave the placeholders to run with no backend.
+  // Without it, the game works on one device (or two tabs of the same browser).
+  SUPABASE_URL: "YOUR_SUPABASE_URL",
+  SUPABASE_ANON_KEY: "YOUR_SUPABASE_ANON_KEY",
+  POLL_MS: 2500
+};
+</script>
+  <script>
+/* ===================== Shape artwork ===================== */
+// Shape artwork (same palette as the Python drawing.py).
+window.NPShapes = {
+  LIST: ["circle", "triangle", "square"],
+  COLORS: { circle: ["#7ad3df", "#177687"], triangle: ["#c8b1f4", "#63479b"], square: ["#ffcf8a", "#945624"] },
+  svg(shape, size) {
+    const c = this.COLORS[shape];
+    if (!c) return "";
+    const g = {
+      circle: '<circle cx="50" cy="50" r="40"/>',
+      triangle: '<polygon points="50,10 92,86 8,86"/>',
+      square: '<rect x="12" y="12" width="76" height="76" rx="3"/>'
+    }[shape];
+    return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="${shape}" ` +
+      `fill="${c[0]}" stroke="${c[1]}" stroke-width="3" stroke-linejoin="round">${g}</svg>`;
+  }
+};
+</script>
+  <script>
+/* ===================== Battle rules ===================== */
+// Battle rules (reads window.NEUROPAWN_CONFIG.BEATS).
+window.NPBattle = {
+  beats(a, b) { return window.NEUROPAWN_CONFIG.BEATS[a] === b; },
+  decide(a, b) {
+    if (a === b) return "tie";
+    return this.beats(a, b) ? "p1" : "p2";
+  }
+};
+</script>
+  <script>
+/* ===================== Brainwave decoder hook (demo by default) ===================== */
+// ------------------------------------------------------------------
+// Where the brainwave decoder plugs in.
+//
+// decode(slot, onPhase) must resolve to { shape: "circle"|"triangle"|"square", score: 0..1 }.
+// It may call onPhase("rest"), onPhase("go"), onPhase("decoding") so the screen shows the
+// same prompts as the recorder (rest cross, GO, imagine).
+//
+// Default below is a DEMO: it runs the countdown and returns a RANDOM shape.
+// To use real EEG, either:
+//   (a) set EEG_SOURCE: "headset" in config.js and send shapes from Python (see README), or
+//   (b) replace this function with a call to your own decoder service.
+// ------------------------------------------------------------------
+window.NPInput = {
+  async decode(slot, onPhase) {
+    const cfg = window.NEUROPAWN_CONFIG;
+    const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
+    onPhase("rest");
+    await wait(cfg.REST_SECONDS);
+    onPhase("go");
+    await wait(cfg.IMAGERY_SECONDS);
+    onPhase("decoding");
+    await wait(0.6);
+    const shapes = window.NPShapes.LIST;
+    return { shape: shapes[Math.floor(Math.random() * shapes.length)], score: +(0.34 + Math.random() * 0.4).toFixed(2) };
+  }
+};
+</script>
+  <script>
+/* ===================== Storage: browser demo or Supabase ===================== */
+// Data layer. Supabase when configured, otherwise a browser-only demo store.
+(function () {
+  const cfg = window.NEUROPAWN_CONFIG;
+  const configured = cfg.SUPABASE_URL && !cfg.SUPABASE_URL.startsWith("YOUR_") &&
+                     cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_ANON_KEY.startsWith("YOUR_") && window.supabase;
+  const sb = configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+  const SHAPES = window.NPShapes.LIST;
+
+  // ---------- demo backend (localStorage; shared between tabs of one browser) ----------
+  const read = () => { try { return JSON.parse(localStorage.getItem("np_demo") || "{}"); } catch { return {}; } };
+  const write = (d) => localStorage.setItem("np_demo", JSON.stringify(d));
+  const view = (m) => {
+    const rev = m.status === "revealed";
+    return {
+      code: m.code, p1_name: m.p1_name, p2_name: m.p2_name, status: m.status, winner: m.winner,
+      created_at: m.created_at, revealed_at: m.revealed_at,
+      p1_locked: !!m.p1_shape, p2_locked: !!m.p2_shape,
+      p1_shape: rev ? m.p1_shape : null, p1_score: rev ? m.p1_score : null,
+      p2_shape: rev ? m.p2_shape : null, p2_score: rev ? m.p2_score : null
+    };
+  };
+  const demo = {
+    async createMatch(p1, p2) {
+      const d = read(); const code = Math.random().toString(36).slice(2, 7).toUpperCase();
+      d[code] = { code, p1_name: p1 || "Player 1", p2_name: p2 || "Player 2", status: "waiting", created_at: new Date().toISOString() };
+      write(d); return code;
+    },
+    async getMatch(code) { const m = read()[code]; return m ? view(m) : null; },
+    async listMatches() {
+      return Object.values(read()).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 10).map(view);
+    },
+    async submitShape({ code, slot, shape, score }) {
+      const d = read(), m = d[code];
+      if (!m) throw new Error("Match not found");
+      if (m.status === "revealed") throw new Error("Match already revealed");
+      if (!SHAPES.includes(shape)) throw new Error("Bad shape");
+      m[`p${slot}_shape`] = shape; m[`p${slot}_score`] = score ?? null;
+      if (m.p1_shape && m.p2_shape) m.status = "ready";
+      write(d);
+    },
+    async battle(code) {
+      const d = read(), m = d[code];
+      if (!m || !m.p1_shape || !m.p2_shape) throw new Error("Both players must lock in first");
+      if (m.status === "revealed") return;
+      Object.assign(m, { status: "revealed", winner: window.NPBattle.decide(m.p1_shape, m.p2_shape), revealed_at: new Date().toISOString() });
+      write(d);
+    },
+    async resetMatch(code) {
+      const d = read(), m = d[code]; if (!m) return;
+      ["p1_shape", "p1_score", "p2_shape", "p2_score", "winner", "revealed_at"].forEach((k) => delete m[k]);
+      m.status = "waiting"; write(d);
+    }
+  };
+
+  // ---------- Supabase backend ----------
+  const ok = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
+  const remote = {
+    async createMatch(p1, p2) { return ok(await sb.rpc("create_match", { p_p1: p1, p_p2: p2 })); },
+    async getMatch(code) { return ok(await sb.from("matches_public").select("*").eq("code", code).maybeSingle()); },
+    async listMatches() { return ok(await sb.from("matches_public").select("*").order("created_at", { ascending: false }).limit(10)); },
+    async submitShape({ code, slot, shape, score }) {
+      ok(await sb.rpc("submit_shape", { p_code: code, p_slot: slot, p_shape: shape, p_score: score ?? null }));
+    },
+    async battle(code) { ok(await sb.rpc("battle_match", { p_code: code })); },
+    async resetMatch(code) { ok(await sb.rpc("reset_match", { p_code: code })); }
+  };
+
+  window.NeuroPawn = { mode: configured ? "supabase" : "demo", ...(configured ? remote : demo) };
+})();
+</script>
+  <script>
+/* ===================== Game screen and turn flow ===================== */
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const cfg = window.NEUROPAWN_CONFIG, API = window.NeuroPawn, B = window.NPBattle, S = window.NPShapes;
+  const SHAPES = S.LIST;
+  const store = {
+    get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } }
+  };
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "");
+
+  let code = store.get("np_code", "");
+  let role = store.get("np_role", "both");
+  let blind = store.get("np_blind", "1") === "1";
+  let match = null, lastSig = {}, lastStatus = null, justRevealed = false;
+  const fresh = () => ({ phase: "ready", pick: null, pred: null, err: "" });
+  const local = { 1: fresh(), 2: fresh() };   // per-player screen state (this device only)
+
+  const turnOf = (m) => m.status === "revealed" ? "done" : !m.p1_locked ? 1 : !m.p2_locked ? 2 : "battle";
+  const allowed = (n) => role === "both" || role === String(n);
+
+  // ---------------- slot rendering ----------------
+  const back = (icon, text, cls) => `<div class="back ${cls || ""}"><div>${icon}</div><small>${esc(text)}</small></div>`;
+  const progress = (s) => `<div class="progress"><i style="animation-duration:${s}s"></i></div>`;
+  const shapeButtons = (n, sel) => `<div class="picker">${SHAPES.map((s) =>
+    `<button class="shapeBtn ${s === sel ? "sel" : ""}" data-pick="${s}" data-slot="${n}" aria-label="${s}">${S.svg(s, 52)}<span>${cap(s)}</span></button>`
+  ).join("")}</div>`;
+
+  function pickerHTML(n) {
+    const L = local[n];
+    if (L.phase === "rest") return `<div class="big">+</div><p>Rest. Keep your eyes on the cross.</p>${progress(cfg.REST_SECONDS)}`;
+    if (L.phase === "go") return `<div class="big go">GO</div><p>Imagine your shape. Hold still.</p>${progress(cfg.IMAGERY_SECONDS)}`;
+    if (L.phase === "decoding") return `<div class="big">…</div><p>Decoding…</p>`;
+    if (L.phase === "locking") return `<div class="big">…</div><p>Locking in…</p>`;
+    if (L.phase === "review") {
+      const pct = L.pred.score != null ? ` (${Math.round(L.pred.score * 100)}%)` : "";
+      return `<div class="face">${S.svg(L.pick, 100)}</div><p>EEG predicts <b>${cap(L.pred.shape)}</b>${pct}. Confirm or change it.</p>` +
+        shapeButtons(n, L.pick) +
+        `<div class="row c"><button class="primary" data-act="lock" data-slot="${n}">Confirm &amp; lock</button><button data-act="redo" data-slot="${n}">Redo</button></div>`;
+    }
+    const read = cfg.EEG_SOURCE === "headset"
+      ? `<p class="muted">Waiting for the headset. Send this player's shape from the Python game (slot ${n}).</p>`
+      : `<button class="primary" data-act="decode" data-slot="${n}">Start brainwave read</button><p class="muted tiny">Demo decode: picks a random shape until your decoder is connected.</p>`;
+    return read + `<div class="or">or pick manually</div>` + shapeButtons(n, L.pick) +
+      `<button data-act="lock" data-slot="${n}" ${L.pick ? "" : "disabled"}>Lock in ${L.pick ? cap(L.pick) : ""}</button>` +
+      (L.err ? `<p class="err">${esc(L.err)}</p>` : "");
+  }
+
+  function slotHTML(n, m, t) {
+    const name = esc(m[`p${n}_name`]);
+    let tag = "Waiting", body;
+    if (m.status === "revealed") {
+      const shape = m[`p${n}_shape`], score = m[`p${n}_score`];
+      tag = m.winner === `p${n}` ? "Winner" : m.winner === "tie" ? "Draw" : "";
+      body = `<div class="face ${justRevealed ? "pop" : ""}">${S.svg(shape, 150)}</div><div class="shapeLabel">${esc(cap(shape))}</div>` +
+        (score != null ? `<div class="muted">EEG score ${Math.round(score * 100)}%</div>` : "");
+    } else if (m[`p${n}_locked`]) {
+      tag = "Locked"; body = back("🔒", "Shape locked in", "locked");
+    } else if (t === n && allowed(n)) {
+      tag = "Your turn"; body = pickerHTML(n);
+    } else if (t === n) {
+      body = back("?", `Waiting for ${m[`p${n}_name`]} on their device`);
+    } else {
+      body = back("?", `${m.p1_name} goes first`);
+    }
+    return `<div class="slotHead"><h3>${name}</h3>${tag ? `<span class="tag">${esc(tag)}</span>` : ""}</div><div class="slotBody">${body}</div>`;
+  }
+
+  // ---------------- tally / text ----------------
+  function tally(m) {
+    const k = "np_tally_" + code;
+    let t; try { t = JSON.parse(store.get(k, "{}")); } catch { t = {}; }
+    t = { p1: 0, p2: 0, tie: 0, last: null, ...t };
+    if (m.status === "revealed" && m.revealed_at && t.last !== m.revealed_at) {
+      t[m.winner] = (t[m.winner] || 0) + 1; t.last = m.revealed_at; store.set(k, JSON.stringify(t));
+    }
+    return t;
+  }
+  function resultText(m) {
+    if (m.winner === "tie") return `Both chose ${cap(m.p1_shape)}. It's a draw!`;
+    const w = m.winner, l = w === "p1" ? "p2" : "p1";
+    return `${cap(m[w + "_shape"])} beats ${m[l + "_shape"]}. ${m[w + "_name"]} wins!`;
+  }
+
+  // ---------------- main render ----------------
+  function render() {
+    const pill = $("modePill");
+    pill.textContent = API.mode === "supabase" ? "● Live (Supabase)" : "● Demo (this browser only)";
+    pill.className = "pill " + (API.mode === "supabase" ? "live" : "demo");
+    $("eventName").textContent = cfg.EVENT_NAME;
+    const m = match;
+    $("arena").classList.toggle("hidden", !m);
+    $("codeShow").textContent = m ? "Match code: " + code : "";
+    if (!m) return;
+    const t = turnOf(m);
+    [1, 2].forEach((n) => {
+      const L = local[n], el = $("slot" + n);
+      const sig = JSON.stringify([m.status, m[`p${n}_locked`], m.winner, t, role, L.phase, L.pick, L.err, m[`p${n}_name`], m[`p${n}_shape`]]);
+      if (lastSig[n] !== sig) { lastSig[n] = sig; el.innerHTML = slotHTML(n, m, t); }
+      el.classList.toggle("winner", m.status === "revealed" && m.winner === "p" + n);
+      el.classList.toggle("active", t === n && allowed(n));
+    });
+    $("turnBanner").textContent = t === "done" ? resultText(m) : t === "battle" ? "Both shapes are locked. Press Battle!" : `${m["p" + t + "_name"]}, it's your turn.`;
+    $("turnBanner").classList.toggle("result", t === "done");
+    $("btnBattle").classList.toggle("hidden", t === "done");
+    $("btnBattle").disabled = t !== "battle";
+    $("btnRematch").classList.toggle("hidden", t !== "done");
+    const ty = tally(m);
+    $("scoreboard").innerHTML = `<b>${esc(m.p1_name)}</b> ${ty.p1} · ${ty.tie} draw${ty.tie === 1 ? "" : "s"} · ${ty.p2} <b>${esc(m.p2_name)}</b>`;
+  }
+
+  async function renderHistory() {
+    try {
+      const ms = await API.listMatches();
+      $("history").innerHTML = ms.length ? ms.map((m) =>
+        `<li><b>${esc(m.code)}</b> ${esc(m.p1_name)} vs ${esc(m.p2_name)} · ${esc(m.status)}` +
+        (m.status === "revealed" ? " · " + (m.winner === "tie" ? "draw" : esc(m[m.winner + "_name"]) + " won") : "") +
+        ` <button data-open="${esc(m.code)}">Open</button></li>`).join("") : "<li class='muted'>No matches yet</li>";
+    } catch (e) { /* history is optional */ }
+  }
+
+  async function refresh() {
+    if (!code) return render();
+    try {
+      const m = await API.getMatch(code);
+      if (!m) { match = null; $("joinMsg").textContent = "No match with that code."; }
+      else {
+        justRevealed = !!match && match.status !== "revealed" && m.status === "revealed";
+        match = m; $("joinMsg").textContent = "";
+      }
+    } catch (e) { $("joinMsg").textContent = e.message; }
+    render();
+    if (match && match.status !== lastStatus) { lastStatus = match.status; renderHistory(); }
+  }
+
+  function setCode(c) {
+    code = (c || "").trim().toUpperCase();
+    store.set("np_code", code);
+    $("joinCode").value = code;
+    match = null; lastSig = {}; lastStatus = null; local[1] = fresh(); local[2] = fresh();
+    return refresh().then(() => { if (match) $("setup").open = false; });
+  }
+
+  // ---------------- actions ----------------
+  async function lock(n, shape, score) {
+    if (!shape) return;
+    local[n].phase = "locking"; render();
+    await API.submitShape({ code, slot: n, shape, score });
+    local[n] = fresh(); await refresh();
+  }
+  async function runDecode(n) {
+    const r = await window.NPInput.decode(n, (ph) => { local[n].phase = ph; render(); });
+    if (blind) return lock(n, r.shape, r.score);
+    local[n] = { phase: "review", pick: r.shape, pred: r, err: "" }; render();
+  }
+
+  $("stage").addEventListener("click", async (e) => {
+    const pick = e.target.closest("[data-pick]");
+    if (pick) { local[+pick.dataset.slot].pick = pick.dataset.pick; render(); return; }
+    const act = e.target.closest("[data-act]");
+    if (!act) return;
+    const n = +act.dataset.slot, L = local[n];
+    try {
+      if (act.dataset.act === "decode") await runDecode(n);
+      else if (act.dataset.act === "lock") await lock(n, L.pick, L.pred && L.pred.shape === L.pick ? L.pred.score : null);
+      else if (act.dataset.act === "redo") { local[n] = fresh(); render(); }
+    } catch (err) { local[n] = { ...fresh(), err: err.message }; render(); }
+  });
+
+  $("btnBattle").onclick = async () => {
+    $("btnBattle").disabled = true;
+    try { await API.battle(code); } catch (e) { alert(e.message); }
+    await refresh();
+  };
+  $("btnRematch").onclick = async () => {
+    try { await API.resetMatch(code); } catch (e) { alert(e.message); }
+    local[1] = fresh(); local[2] = fresh(); await refresh();
+  };
+  $("btnNew").onclick = async () => {
+    try { await setCode(await API.createMatch($("newP1").value.trim(), $("newP2").value.trim())); }
+    catch (e) { $("joinMsg").textContent = e.message; }
+  };
+  $("btnJoin").onclick = () => setCode($("joinCode").value);
+  $("history").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) setCode(b.dataset.open); });
+
+  $("role").value = role;
+  $("role").onchange = (e) => { role = e.target.value; store.set("np_role", role); render(); };
+  $("blind").checked = blind;
+  $("blind").onchange = (e) => { blind = e.target.checked; store.set("np_blind", blind ? "1" : "0"); };
+
+  // rules card, built from config so it always matches BEATS
+  $("rules").innerHTML = Object.entries(cfg.BEATS).map(([a, b]) =>
+    `<div class="rule">${S.svg(a, 40)}<span>${cap(a)} beats ${b}</span>${S.svg(b, 40)}</div>`).join("");
+
+  window.addEventListener("storage", (e) => { if (e.key === "np_demo") refresh(); });   // other tab, same browser
+  render();
+  if (code) setCode(code); else renderHistory();
+  setInterval(refresh, cfg.POLL_MS);
+})();
+</script>
+</body>
+</html>
