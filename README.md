@@ -1,6 +1,18 @@
 # NeurotechNCSU
 Repo hosting code for Neurotech event at NCSU Fall 2026
 
+---
+
+**sentence desc**
+
+Desc...
+
+Live site:()
+
+This is a functioning prototype.
+
+---
+
 ## Limitations
 
 * if any
