@@ -17,19 +17,19 @@ python -m pip install -r requirements.txt
 **Circle beats triangle. Triangle beats square. Square beats circle.** Matching shapes draw.
 
 ```sh
-python -m imagery play --session data/neuropawn-rps-seed.npz \
+python -m imagery play --session runs/rps.npz \
   --port /dev/cu.usbserial1234 --profile runs/player.sqlite3
 ```
 
-Replace the example port with your board's port. The included seed uses gain 4 and board inputs **1, 2, and 6**. Keep the electrode placement and input order consistent for each player profile. Use a separate `.sqlite3` file for each player or headset setup. See [seed recording details](../data/README.md).
+Replace the example port with your board's port. Use a labeled three-shape recording as the seed. The recording command below creates `runs/rps.npz`. Keep the electrode placement and input order consistent for each player profile. Use a separate `.sqlite3` file for each player or headset setup.
 
 At GO, privately choose and imagine one of the three shapes. The game shows its prediction and a percentage model score. Press Enter to confirm it, type your actual shape to correct it, or type `skip` to omit that round. The confirmed shape determines the round against the computer and adds a training example. Reuse the same profile path to continue learning across sessions. Each launch writes a separate round log in `runs/` by default.
 
-The initial decoder is a regularized classifier trained with Fourier features and five SVD components on all 60 seed trials. During teaching, the program refits the scaling, SVD, and classifier using weighted seed and player examples. The seed carries the equivalent of six examples per class before class balancing. Each confirmed player trial adds one example, so the player's influence grows without losing classes they have yet to choose. The player database stores features, labels, and pre-feedback predictions locally.
+The initial decoder is a regularized classifier trained with Fourier features and five SVD components on the supplied seed trials. During teaching, the program refits the scaling, SVD, and classifier using weighted seed and player examples. The seed carries the equivalent of six examples per class before class balancing. Each confirmed player trial adds one example, so the player's influence grows without losing classes they have yet to choose. The player database stores features, labels, and pre-feedback predictions locally.
 
-The program compares the learning model with a frozen seed model on each round before the player reports the move. It displays the seed prediction until at least 12 earlier moves have been confirmed, with at least three of each shape, and the learning model has gained at least two correct predictions and 10 percentage points of mean recall across the three shapes. This rule is a prototype guard. In a chronological replay of the seed recording, serving the learning model on every round scored 8/24 compared with 12/24 for the frozen seed.
+The program compares the learning model with a frozen seed model on each round before the player reports the move. It displays the seed prediction until at least 12 earlier moves have been confirmed, with at least three of each shape, and the learning model has gained at least two correct predictions and 10 percentage points of mean recall across the three shapes. This rule is a prototype guard. In a chronological replay of our 60-trial pilot, serving the learning model on every round scored 8/24 compared with 12/24 for the frozen seed.
 
-The log records the displayed prediction and both models' pre-feedback scores. Scores are uncalibrated classifier probabilities. The archive comes from one wearer, and its held-out accuracy did not establish above-chance decoding. To assess personalization, compare both predictions on fresh rounds and separately test a frozen model with the prediction hidden until after the report.
+The log records the displayed prediction and both models' pre-feedback scores. Scores are uncalibrated classifier probabilities. Our pilot recording comes from one wearer, and its held-out accuracy did not establish above-chance decoding. To assess personalization, compare both predictions on fresh rounds and separately test a frozen model with the prediction hidden until after the report.
 
 Supervised feedback and a seed decoder follow the coadaptive design tested by Vidaurre and colleagues in sensorimotor imagery. EEG transfer studies also report substantial wearer differences. The weighting above is a prototype choice for this recording. [Coadaptive calibration](https://pubmed.ncbi.nlm.nih.gov/21162666/) · [EEG transfer learning](https://pubmed.ncbi.nlm.nih.gov/31034407/)
 
