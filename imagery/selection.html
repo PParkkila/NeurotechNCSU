@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroPawn shape selection</title>
+<style>
+  :root { color-scheme: dark; font: 17px system-ui, sans-serif; background: #111827; color: #e2e8f0; }
+  body { max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.65rem; margin-bottom: .3rem; }
+  p { line-height: 1.45; }
+  a { color: #9ed9f5; }
+  label { display: block; margin: 1rem 0; }
+  button { font: inherit; color: #101826; background: #d3e7f2; padding: .6rem 1rem; border: 0; border-radius: .4rem; }
+  button:disabled { opacity: .5; }
+  :focus-visible { outline: 3px solid #fbbf24; outline-offset: 4px; }
+  #targets { display: grid; grid-template-columns: 1fr 1fr 1fr; place-items: center;
+             min-height: 10rem; background: #171f2c; border-radius: .5rem; }
+  .target { width: min(4rem, 16vw); aspect-ratio: 1; background: #94a3b8; opacity: .48; }
+  .circle { border-radius: 50%; }
+  #fixation { font-size: 1.75rem; }
+  #message { min-height: 3rem; }
+  #drawing { width: 6rem; aspect-ratio: 1; background: #9ed9f5; margin: 1rem 0; }
+  .notice { border-left: .25rem solid #fbbf24; padding-left: .8rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>NeuroPawn shape selection</h1>
+  <p>Look at a target to select it with EEG. During idle trials, keep your eyes on the center +.</p>
+  <p class="notice" id="flicker-notice"><strong>Flicker notice.</strong> The targets flicker at 10 and 12 Hz. If flashing lights affect you or you have photosensitive epilepsy, skip this demo. Press Esc to stop a trial at any time.</p>
+  <label><input id="consent" type="checkbox" aria-describedby="flicker-notice"> I have read the flicker notice and want to continue.</label>
+  <p id="prompt" aria-live="polite"></p>
+  <div id="targets" aria-label="Circle on the left, fixation cross in the center, square on the right">
+    <span id="circle" class="target circle" aria-hidden="true"></span>
+    <span id="fixation" aria-hidden="true">+</span>
+    <span id="square" class="target" aria-hidden="true"></span>
+  </div>
+  <p id="message" role="status"></p>
+  <button id="start" type="button" disabled>Start trial</button>
+  <button id="stop" type="button" hidden>Stop flicker</button>
+  <p id="report" hidden></p>
+  <div id="drawing" role="img" hidden></div>
+</main>
+<script>
+"use strict";
+
+const consent = document.querySelector("#consent");
+const prompt = document.querySelector("#prompt");
+const message = document.querySelector("#message");
+const start = document.querySelector("#start");
+const stop = document.querySelector("#stop");
+const report = document.querySelector("#report");
+const drawing = document.querySelector("#drawing");
+const targets = [document.querySelector("#circle"), document.querySelector("#square")];
+const names = ["circle", "square"];
+const frequencies = [10, 12];
+const calibration = [];
+const validation = [];
+let phase = "calibration";
+let gate = null;
+let busy = false;
+let active = null;
+let canDraw = false;
+
+function randomizedTrials(perShape, idle) {
+  const labels = [
+    ...Array(perShape).fill(0), ...Array(perShape).fill(1), ...Array(idle).fill(-1),
+  ];
+  for (let i = labels.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [labels[i], labels[j]] = [labels[j], labels[i]];
+  }
+  return labels;
+}
+
+let labels = randomizedTrials(3, 3);
+
+function updateControls() {
+  start.disabled = !consent.checked || busy || active !== null || phase === "finished";
+  stop.hidden = active === null;
+  start.textContent = {
+    calibration: "Start trial",
+    validation: "Start trial",
+    calibrate: "Retry calibration",
+    save: "Retry saving results",
+    free: "Start free selection",
+    finished: "Pilot complete",
+  }[phase];
+  if (phase === "calibration" || phase === "validation") {
+    const count = phase === "calibration" ? calibration.length : validation.length;
+    const cue = labels[count] === -1 ? "Keep looking at the center +." : `Look at the ${names[labels[count]]}.`;
+    const stage = phase === "calibration" ? "Calibration" : "Validation";
+    prompt.textContent = `${stage} ${count + 1} of ${labels.length}. ${cue}`;
+  } else if (phase === "free") {
+    prompt.textContent = "Look at either shape to draw it, or at the + to leave the drawing as it is.";
+  } else {
+    prompt.textContent = phase === "calibrate" ? "Fitting the selection gate." : "Validation complete.";
+  }
+}
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}.`);
+  return result;
+}
+
+function stopTrial(trial) {
+  cancelAnimationFrame(trial.animation);
+  targets.forEach((target) => { target.style.opacity = ""; });
+  active = null;
+}
+
+function retryTrial(reason) {
+  if (active === null) return;
+  busy = active.pending;
+  stopTrial(active);
+  message.textContent = `${reason} Start the same trial again when ready.`;
+  updateControls();
+}
+
+function steadyRefresh(intervals) {
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const hz = 1000 / median;
+  if (intervals.length < 25 || !((hz >= 55 && hz <= 65) || (hz >= 110 && hz <= 130))) return null;
+  if (intervals.some((interval) => interval < .6 * median || interval > 1.8 * median)) return null;
+  return median;
+}
+
+async function requestScore(trial) {
+  trial.pending = true;
+  try {
+    const response = await post("/score", {gate});
+    if (!Array.isArray(response.scores) || response.scores.length !== 2 ||
+        !response.scores.every(Number.isFinite) || ![0, 1].includes(response.forced) ||
+        ![0, 1, null].includes(response.selection)) {
+      throw new Error("The server returned an invalid score.");
+    }
+    trial.response = response;
+  } catch (error) {
+    if (active === trial) retryTrial(error.message);
+  } finally {
+    trial.pending = false;
+    if (active !== trial) {
+      busy = false;
+      updateControls();
+    }
+  }
+}
+
+function renderFrame(trial, timestamp) {
+  if (active !== trial) return;
+  if (document.hidden || !document.hasFocus()) {
+    retryTrial("The page lost focus.");
+    return;
+  }
+  if (trial.firstFrame === null) trial.firstFrame = timestamp;
+  const elapsed = timestamp - trial.firstFrame;
+  if (trial.lastFrame !== null) {
+    const interval = timestamp - trial.lastFrame;
+    if (trial.frameMs === null) {
+      trial.intervals.push(interval);
+    } else if (interval > 1.8 * trial.frameMs) {
+      retryTrial("The display dropped a frame.");
+      return;
+    } else if (interval < .6 * trial.frameMs) {
+      retryTrial("The display refresh rate changed.");
+      return;
+    }
+  }
+  trial.lastFrame = timestamp;
+  if (elapsed > 8000) {
+    retryTrial("The headset score timed out.");
+    return;
+  }
+  if (trial.response && elapsed >= 4500) {
+    stopTrial(trial);
+    void finishTrial(trial.response);
+    return;
+  }
+  targets.forEach((target, index) => {
+    const angle = 2 * Math.PI * frequencies[index] * elapsed / 1000;
+    target.style.opacity = String(.48 + .15 * Math.sin(angle));
+  });
+  if (trial.frameMs === null && elapsed >= 500) {
+    trial.frameMs = steadyRefresh(trial.intervals);
+    if (trial.frameMs === null) {
+      retryTrial("A steady 60 or 120 Hz display was not detected.");
+      return;
+    }
+    void requestScore(trial);
+  }
+  trial.animation = requestAnimationFrame((next) => renderFrame(trial, next));
+}
+
+function beginTrial() {
+  message.textContent = "Trial in progress. Press Esc to stop.";
+  const trial = {
+    pending: false,
+    firstFrame: null, lastFrame: null, frameMs: null, response: null,
+    intervals: [],
+  };
+  active = trial;
+  updateControls();
+  trial.animation = requestAnimationFrame((timestamp) => renderFrame(trial, timestamp));
+}
+
+async function calibrate() {
+  busy = true;
+  message.textContent = "Calibrating from the nine recorded trials…";
+  updateControls();
+  try {
+    const result = await post("/calibrate", {
+      scores: calibration.map((trial) => trial.scores),
+      labels: calibration.map((trial) => trial.label),
+    });
+    if (!result.gate || !Number.isFinite(result.gate.threshold) || !Number.isFinite(result.gate.margin)) {
+      throw new Error("The server returned an invalid selection gate.");
+    }
+    gate = {threshold: result.gate.threshold, margin: result.gate.margin};
+    labels = randomizedTrials(6, 4);
+    phase = "validation";
+    message.textContent = "Calibration saved in this session. The selection gate is fixed for validation.";
+  } catch (error) {
+    calibration.length = 0;
+    labels = randomizedTrials(3, 3);
+    phase = "calibration";
+    message.textContent = `${error.message} Check the setup before starting a new calibration.`;
+  } finally {
+    busy = false;
+    updateControls();
+  }
+}
+
+async function saveResult() {
+  busy = true;
+  message.textContent = "Saving validation results…";
+  updateControls();
+  try {
+    const result = await post("/result", {gate, calibration, validation});
+    if (typeof result.saved !== "string" || !result.saved) {
+      throw new Error("The server did not confirm the save.");
+    }
+    phase = canDraw ? "free" : "finished";
+    message.textContent = `Saved to ${result.saved}. ` +
+      (canDraw ? "Free selection unlocked." : "Free selection requires at least 10 of 12 correct and zero idle selections.");
+  } catch (error) {
+    message.textContent = `${error.message} The report has not been saved.`;
+  } finally {
+    busy = false;
+    updateControls();
+  }
+}
+
+async function finishTrial(score) {
+  if (phase === "free") {
+    if (score.selection === null) {
+      message.textContent = "No shape selected.";
+    } else {
+      const name = names[score.selection];
+      drawing.className = name;
+      drawing.setAttribute("aria-label", `Drawn ${name}`);
+      drawing.hidden = false;
+      message.textContent = `Drew a ${name}.`;
+    }
+    updateControls();
+    return;
+  }
+
+  const trials = phase === "calibration" ? calibration : validation;
+  trials.push({label: labels[trials.length], scores: score.scores, forced: score.forced, selection: score.selection});
+  if (trials.length < labels.length) {
+    message.textContent = "Trial recorded.";
+    updateControls();
+  } else if (phase === "calibration") {
+    phase = "calibrate";
+    await calibrate();
+  } else {
+    const shapeTrials = validation.filter((trial) => trial.label !== -1);
+    const correct = shapeTrials.filter((trial) => trial.selection === trial.label).length;
+    const abstentions = shapeTrials.filter((trial) => trial.selection === null).length;
+    const falseAccepts = validation.filter((trial) => trial.label === -1 && trial.selection !== null).length;
+    canDraw = correct >= 10 && falseAccepts === 0;
+    report.textContent = `Validation: ${correct}/12 shape trials correct, counting ${abstentions} abstentions as misses. Idle false selections: ${falseAccepts}/4.`;
+    report.hidden = false;
+    phase = "save";
+    await saveResult();
+  }
+}
+
+consent.addEventListener("change", () => {
+  if (!consent.checked) retryTrial("Flicker stopped.");
+  updateControls();
+});
+start.addEventListener("click", () => {
+  if (start.disabled) return;
+  if (phase === "calibrate") void calibrate();
+  else if (phase === "save") void saveResult();
+  else beginTrial();
+});
+stop.addEventListener("click", () => retryTrial("Flicker stopped."));
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") retryTrial("Flicker stopped.");
+});
+window.addEventListener("blur", () => retryTrial("The page lost focus."));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) retryTrial("The page was hidden.");
+});
+updateControls();
+</script>
+</body>
+</html>
