@@ -2,6 +2,7 @@
 __pycache__/
 runs/
 *.npz
+!runs/rps.npz
 *.sqlite3
 *.sqlite3-*
 .DS_Store

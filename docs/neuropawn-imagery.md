@@ -90,7 +90,7 @@ If a short contact check shows clipping, check the electrodes and shared referen
 - The report includes paired correct counts and the SVD accuracy difference in percentage points. Within-training-block label shuffles provide a chance comparison for each model. Those shuffle scores do not test whether SVD's improvement itself is statistically significant.
 - Fix `--components` and `--holdout-blocks` before evaluating your final session. A positive result is a two-layout classification result for that recording protocol. The frontal comparison can flag a confound, and a fresh session with altered cues gives a stronger follow-up test.
 
-`runs/`, player profiles, and `.npz` recordings are ignored by Git.
+`runs/`, player profiles, and other `.npz` recordings are ignored by Git.
 
 ## EEG-guided drawing with visible targets
 
