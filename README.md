@@ -26,7 +26,7 @@ Static website (HTML/CSS/JS) + Supabase database, deployed on Vercel. (!!!!)
 ## What it does (!!!)
 - **Dashboard**: create a match, see each player's status (shapes stay hidden), press **Battle** once both have gone, see the result and both shapes.
 - **Play**: draw a shape on a canvas and lock it in (strokes are saved too, for the "drawing signals" idea). Game iframe placeholder lives here.
-- **NeuroPawn signals**: placeholder table + `NeuroPawn.saveSignal()`; fill in once the device exists.
+- **NeuroPawn signals**: placeholder table + `NeuroPawn.saveSignal()`; fill in once the device exists. 
 - **Rules**: square > triangle > circle > square
 
 ## Folder layout
