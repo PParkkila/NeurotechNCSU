@@ -11,7 +11,7 @@ Made for Neurotech Hackathon 2026
 **AI assistance:** Most of the code in this project was written with AI assistance:
 
 * **Claude** (Anthropic) wrote 
-* **Codex** (OpenAI) wrote troubleshooting and website ideas.
+* **Codex** (OpenAI) wrote 
 
 The team defined the project goals, directed the design, built and wired the hardware, tested the system, and integrated and debugged everything.
 
