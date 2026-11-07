@@ -3,11 +3,10 @@ Repo hosting code for Neurotech event at NCSU Fall 2026
 
 ---
 
-**sentence desc**
+**Rock Paper Scissors Reimagined**
+By analyzing Fourier coefficients from brainwaves based on what shapes the user is thinking of, we are able to replicate this many times, allowing for 2 user to play against each other in a rough game of rock paper scissors using predetermined shapes. 
 
-Desc...
-
-Live site:(https://neurotechncsu.vercel.app/)
+Live site:()
 
 This is a functioning prototype.
 
@@ -26,21 +25,13 @@ Static website (HTML/CSS/JS) + Supabase database, deployed on Vercel. (!!!!)
 ## What it does (!!!)
 - **Dashboard**: create a match, see each player's status (shapes stay hidden), press **Battle** once both have gone, see the result and both shapes.
 - **Play**: draw a shape on a canvas and lock it in (strokes are saved too, for the "drawing signals" idea). Game iframe placeholder lives here.
-- **Questionnaire**: editable list in `js/questions.js`; answers saved to Supabase.
 - **NeuroPawn signals**: placeholder table + `NeuroPawn.saveSignal()`; fill in once the device exists.
-- Rules: square > triangle > circle > square, or "best-drawn shape" (score from the drawing heuristic in `js/draw.js`).
+- **Rules**: square > triangle > circle > square
 
 ## Folder layout
 ```
 fill in
 ```
-
-## Setup
-1. **Try it first**: open `index.html` (or run `npx serve .`). With no config it runs in *demo mode* (data stays in your browser only).
-2. **Supabase**: create a project, open SQL Editor, paste and run `supabase/schema.sql`.
-3. Copy **Project URL** and **anon public key** (Project Settings → API) into `js/config.js`.
-4. **GitHub**: put this folder in your repo (e.g. `/dashboard`, or at the repo root).
-5. **Vercel**: if it's in a subfolder, set *Project Settings → Root Directory* to that folder (or add it as a separate Vercel project). Framework preset: **Other**. Push, and it deploys.
 
 ## Notes (rough draft - NEEDS OBVIOUS CHANGE)
 - Hidden shapes are enforced in the database: the site reads from the `matches_public` view, which returns shapes only after `status = 'revealed'`.
