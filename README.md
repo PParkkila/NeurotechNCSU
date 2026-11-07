@@ -1,6 +1,8 @@
 # NeurotechNCSU
 Repo hosting code for Neurotech event at NCSU Fall 2026
 
+[NeuroPawn EEG prototype and player teaching instructions](docs/neuropawn-imagery.md)
+
 ---
 
 **Rock Paper Scissors Reimagined**
