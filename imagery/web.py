@@ -1,31 +1,25 @@
 """Serve the game and its local NeuroPawn connection over loopback."""
 
-from dataclasses import dataclass
-from hashlib import file_digest
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 from threading import Lock
-from time import monotonic
-from uuid import UUID, uuid4
+from urllib.parse import parse_qs, urlsplit
+from uuid import UUID
 
-import numpy as np
-
-from .model import decoder_features
-from .personalization import MovePrediction, PlayerDecoder
 from .recording import ADCRailError, MOVE_NAMES, NeuroPawn, capture_move
+from .web_session import IMAGERY_SECONDS, REST_SECONDS, GameSession
 
 
 _LOOPBACK = "127.0.0.1"
 _SHAPES = tuple(name.lower() for name in MOVE_NAMES)
 _MAX_BODY = 4096
-_PENDING_LIMIT = 128
-_PENDING_SECONDS = 600
 _STATIC_TYPES = {
     "index.html": "text/html; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
     **dict.fromkeys(
-        ("api.js", "app.js", "battle.js", "config.js", "input.js", "shapes.js"),
+        ("api.js", "app.js", "battle.js", "config.js", "input.js", "shapes.js", "session-game.js"),
         "text/javascript; charset=utf-8",
     ),
 }
@@ -50,90 +44,49 @@ def _uuid(value, field):
     raise _RequestError(400, f"{field} must be a UUID.")
 
 
-@dataclass(slots=True)
-class _Round:
-    profile: str
-    expires: float
-    features: np.ndarray | None
-    prediction: MovePrediction | None
-    actual: int | None = None
-    examples: int | None = None
-
-
 class _Bridge:
-    def __init__(self, args, data, board):
+    def __init__(self, args, board):
         self.board = board
-        self.profiles = Path(args.profiles)
-        self.seed_features = decoder_features(data["eeg"], data["fs"])
-        self.seed_labels = data["labels"]
-        with args.session.open("rb") as archive:
-            digest = file_digest(archive, "sha256")
-        digest.update(bytes([args.imu]))
-        self.signature = digest.hexdigest()
-        self.rest_seconds = data["baseline"].shape[-1] / data["fs"]
-        self.seconds = data["eeg"].shape[-1] / data["fs"]
-        self.skip = data["skip"]
-        self.capture_lock = Lock()
-        self.pending_lock = Lock()
-        self.pending = {}
+        self.directory = args.sessions
+        self.configuration = dict(fs=board.fs, inputs=args.inputs, gain=args.gain, imu=args.imu)
+        self.lock = Lock()
 
-    def _decoder(self, profile):
-        return PlayerDecoder(
-            self.profiles / f"{profile}.sqlite3", self.seed_features, self.seed_labels,
-            signature=self.signature,
-        )
-
-    def _prune(self, now):
-        expired = [key for key, item in self.pending.items() if item.expires <= now]
-        for key in expired:
-            del self.pending[key]
+    @contextmanager
+    def operation(self):
+        if not self.lock.acquire(blocking=False):
+            raise _RequestError(409, "Another EEG action is in progress. Try again when it finishes.")
+        try:
+            yield
+        finally:
+            self.lock.release()
 
     def status(self):
         return {
             "available": True,
-            "rest_seconds": self.rest_seconds,
-            "imagery_seconds": self.seconds + self.skip,
+            "mode": "calibration",
+            "rest_seconds": REST_SECONDS + 0.5,
+            "imagery_seconds": IMAGERY_SECONDS,
         }
 
-    def capture(self, profile, emit):
-        with self._decoder(profile) as decoder:
-            _, imagery = capture_move(
-                self.board, seconds=self.seconds, skip=self.skip,
-                baseline_seconds=self.rest_seconds, on_phase=lambda phase: emit({"phase": phase}),
-            )
-            emit({"phase": "decoding"})
-            features = decoder_features(imagery[None], self.board.fs)[0]
-            prediction = decoder.predict(features)
-        round_id = uuid4()
-        with self.pending_lock:
-            now = monotonic()
-            self._prune(now)
-            if len(self.pending) >= _PENDING_LIMIT:
-                del self.pending[next(iter(self.pending))]
-            self.pending[round_id.hex] = _Round(profile, now + _PENDING_SECONDS, features, prediction)
-        return {
-            "id": str(round_id),
-            "shape": _SHAPES[prediction.move],
-            "score": prediction.confidence,
-            "model": "player" if prediction.using_player else "seed",
-            "examples": prediction.examples,
-        }
+    def create(self, player):
+        if not isinstance(player, str) or len(player.strip()) > 24:
+            raise _RequestError(400, "Use a player name up to 24 characters.")
+        return GameSession.create(self.directory, player.strip() or "Player", **self.configuration)
 
-    def confirm(self, round_id, actual):
-        with self.pending_lock:
-            self._prune(monotonic())
-            pending = self.pending.get(round_id)
-            if pending is None:
-                raise _RequestError(404, "This prediction expired. Capture another round.")
-            if pending.actual is not None:
-                if pending.actual != actual:
-                    raise _RequestError(409, "This round was already confirmed as a different shape.")
-                return pending.examples
-            with self._decoder(pending.profile) as decoder:
-                examples = decoder.teach(round_id, pending.features, actual, pending.prediction)
-            pending.actual, pending.examples = actual, examples
-            pending.features = pending.prediction = None
-            return examples
+    def open(self, session_id):
+        path = self.directory / f"{session_id}.npz"
+        try:
+            return GameSession.load(path, **self.configuration)
+        except FileNotFoundError as exc:
+            raise _RequestError(404, "Session not found. Start a new game.") from exc
+
+    def capture(self, game, emit):
+        baseline, imagery = capture_move(
+            self.board, seconds=IMAGERY_SECONDS, skip=0, baseline_seconds=REST_SECONDS,
+            on_phase=lambda phase: emit({"phase": phase}),
+        )
+        emit({"phase": "decoding"})
+        return game.capture(baseline, imagery)
 
 
 class _GameServer(ThreadingHTTPServer):
@@ -198,15 +151,25 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self._check_host()
-            path = self.path.partition("?")[0]
-            if path == "/eeg/status":
-                self._json(200, self.server.bridge.status())
-            elif path in self.server.assets:
-                self._respond(200, *self.server.assets[path])
+            url = urlsplit(self.path)
+            bridge = self.server.bridge
+            if url.path == "/eeg/status":
+                self._json(200, bridge.status())
+            elif url.path == "/eeg/session":
+                session_ids = parse_qs(url.query).get("session", [])
+                session_id = _uuid(session_ids[0] if len(session_ids) == 1 else None, "session")
+                self._json(200, bridge.open(session_id).state())
+            elif url.path in self.server.assets:
+                self._respond(200, *self.server.assets[url.path])
             else:
                 self._json(404, {"error": "Not found."})
         except _RequestError as exc:
             self._json(exc.status, {"error": str(exc)})
+        except ValueError as exc:
+            self._json(409, {"error": str(exc)})
+        except OSError as exc:
+            self.log_error("EEG session read failed: %s", exc)
+            self._json(500, {"error": "The local game session could not be read."})
 
     def _emit(self, message):
         try:
@@ -215,67 +178,77 @@ class _Handler(BaseHTTPRequestHandler):
         except OSError as exc:
             raise _ClientDisconnected from exc
 
-    def _capture(self, profile):
+    def _capture(self, data):
         bridge = self.server.bridge
-        if not bridge.capture_lock.acquire(blocking=False):
-            raise _RequestError(409, "An EEG capture is already running. Try again when it finishes.")
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Connection", "close")
-            self.end_headers()
+        with bridge.operation():
+            game = bridge.open(_uuid(data.get("session"), "session"))
+            state = game.state()
+            question = data.get("question")
+            if state["phase"] == "calibration":
+                if type(question) is not int or question != state["calibration"]["completed"]:
+                    raise _RequestError(409, "The calibration prompt changed. Refresh the session and try again.")
+            elif question is not None or state["phase"] not in ("ready", "result"):
+                raise _RequestError(409, "Finish the current round before starting another read.")
+
             try:
-                self._emit({"prediction": bridge.capture(profile, self._emit)})
-            except _ClientDisconnected:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                try:
+                    self._emit({"state": bridge.capture(game, self._emit)})
+                except _ClientDisconnected:
+                    return
+                except ADCRailError:
+                    self._emit({"error": "EEG clipped. Check the electrode contacts and ear clip, then try again."})
+                except Exception as exc:
+                    self.log_error("EEG capture failed: %s", exc)
+                    self._emit({"error": "The EEG read failed. Check the headset and local session folder, then try again."})
+            except (_ClientDisconnected, OSError):
                 return
-            except ADCRailError:
-                self._emit({"error": "EEG clipped. Check the electrode contacts and ear clip, then try again."})
-            except Exception as exc:
-                self.log_error("EEG capture failed: %s", exc)
-                self._emit({"error": "The EEG round failed. Check the headset connection and try again."})
-        except (_ClientDisconnected, OSError):
-            pass
-        finally:
-            bridge.capture_lock.release()
 
     def do_POST(self):
         try:
             self._check_host()
-            path = self.path.partition("?")[0]
-            if path == "/eeg/capture":
-                self._capture(_uuid(self._body().get("profile"), "profile"))
-            elif path == "/eeg/confirm":
+            path = urlsplit(self.path).path
+            bridge = self.server.bridge
+            if path == "/eeg/session":
+                self._json(201, bridge.create(self._body().get("player", "")).state())
+            elif path == "/eeg/capture":
+                self._capture(self._body())
+            elif path in ("/eeg/confirm", "/eeg/battle", "/eeg/discard"):
                 data = self._body()
                 round_id = _uuid(data.get("id"), "id")
-                shape = data.get("shape")
-                if shape not in _SHAPES:
-                    raise _RequestError(400, "Choose circle, triangle, or square.")
-                examples = self.server.bridge.confirm(round_id, _SHAPES.index(shape))
-                self._json(200, {"examples": examples})
+                with bridge.operation():
+                    game = bridge.open(_uuid(data.get("session"), "session"))
+                    if path == "/eeg/confirm":
+                        shape = data.get("shape")
+                        if shape not in _SHAPES:
+                            raise _RequestError(400, "Choose circle, triangle, or square.")
+                        state = game.confirm(round_id, shape)
+                    elif path == "/eeg/battle":
+                        state = game.battle(round_id)
+                    else:
+                        state = game.discard(round_id)
+                self._json(200, state)
             else:
                 self._json(404, {"error": "Not found."})
         except _RequestError as exc:
             self._json(exc.status, {"error": str(exc)})
-        except (RuntimeError, ValueError) as exc:
+        except ValueError as exc:
+            self._json(409, {"error": str(exc)})
+        except (RuntimeError, OSError) as exc:
             self.log_error("EEG request failed: %s", exc)
-            self._json(500, {"error": "Could not save the confirmed move to the local profile."})
+            self._json(500, {"error": "The local game session could not be saved."})
 
 
-def run_web(args, data):
+def run_web(args):
     """Run one local board stream and the browser bridge until interrupted."""
-    eeg = data["eeg"]
-    if data["source"] != "neuropawn" or data["task"] != "rps" or data["baseline"] is None:
-        raise ValueError("The browser game requires a three-move NeuroPawn seed with resting EEG.")
-    if not data["inputs"] or len(data["inputs"]) != eeg.shape[1] or data["gain"] is None:
-        raise ValueError("The seed must identify the board inputs and gain used for training.")
-
     site = Path(__file__).resolve().parents[1]
-    with NeuroPawn(args.port, imu=args.imu, inputs=data["inputs"], gain=data["gain"]) as board:
-        if board.fs != data["fs"]:
-            raise ValueError("The headset sample rate differs from the seed recording.")
-        bridge = _Bridge(args, data, board)
+    with NeuroPawn(args.port, imu=args.imu, inputs=args.inputs, gain=args.gain) as board:
+        bridge = _Bridge(args, board)
         with _GameServer(args.listen_port, bridge, site) as server:
             print(f"Open {server.origin} for the local NeuroPawn game. Press Ctrl-C to stop.", flush=True)
             server.serve_forever()

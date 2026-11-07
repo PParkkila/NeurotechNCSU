@@ -1,7 +1,12 @@
-(function () {
+(async function () {
   const $ = (id) => document.getElementById(id);
   const cfg = window.NEUROPAWN_CONFIG, API = window.NeuroPawn, B = window.NPBattle, S = window.NPShapes;
   const SHAPES = S.LIST, EEG = window.NPInput;
+  const bridge = await EEG.bridgeStatus();
+  if (bridge?.mode === "calibration") {
+    window.NPSessionGame.start(bridge);
+    return;
+  }
   const store = {
     get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
     set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } }
@@ -13,7 +18,7 @@
   let role = store.get("np_role", "both");
   let blind = store.get("np_blind", "0") === "1";
   let match = null, lastSig = {}, lastStatus = null, justRevealed = false;
-  let bridge = null, matchGeneration = 0, refreshSequence = 0, lastAppliedRefresh = 0;
+  let matchGeneration = 0, refreshSequence = 0, lastAppliedRefresh = 0;
   const fresh = () => ({ phase: "ready", pick: null, pred: null, err: "", confirmed: null, taught: null });
   const local = { 1: fresh(), 2: fresh() };   // per-player screen state (this device only)
 
@@ -287,7 +292,6 @@
     `<div class="rule">${S.svg(a, 40)}<span>${cap(a)} beats ${b}</span>${S.svg(b, 40)}</div>`).join("");
 
   window.addEventListener("storage", (e) => { if (e.key === "np_demo") refresh(); });   // other tab, same browser
-  EEG.bridgeStatus().then((status) => { bridge = status; render(); });
   render();
   if (code) setCode(code); else renderHistory();
   setInterval(refresh, cfg.POLL_MS);

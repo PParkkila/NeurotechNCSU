@@ -14,22 +14,33 @@ python -m pip install -r requirements.txt
 
 ## Teach the decoder in Shape Battle
 
-On the computer connected to NeuroPawn, start the existing Shape Battle app with the local headset bridge.
+On the computer connected to NeuroPawn, start the local headset bridge.
 
 ```sh
 python -m imagery web --port /dev/cu.usbserial1234
 ```
 
-Open `http://127.0.0.1:8765` in the browser on that computer. The bridge uses the bundled three-shape seed by default. Pass `--session` to use a different labeled calibration.
+Open `http://127.0.0.1:8765` on that computer. The default hardware setup uses gain 4 and board inputs 1, 2, and 6. Pass `--inputs` and `--gain` to match your wiring.
 
-1. Create or join a match and leave blind mode off for teaching.
-2. Click **Start brainwave read**. Choose your shape privately at GO.
-3. Review the prediction and its uncalibrated percentage. Select your intended shape and click **Confirm & lock**. The decoder records the feedback before the match receives the confirmed shape.
-4. When both players lock in, press **Battle**. Rematches reuse the player profiles.
+1. Start a session. The game presents 20 shuffled shape prompts with counts of 7, 7, and 6. Read the prompt, start the EEG capture, and picture the prompted shape at GO.
+2. After calibration, privately choose a shape at GO. Confirm or correct the EEG guess before pressing **Battle**. The confirmed shape teaches the decoder and is used against the computer's hidden move. The computer independently picks each shape with probability 1/3.
+3. The dashboard updates after each confirmed gameplay read. Accuracy compares the original prediction with the confirmed shape. Precision and recall are macro averages over the three shapes. A class with a zero denominator contributes zero.
 
-Keep the same browser, player name, and slot to continue a profile. Use distinct names for distinct wearers. Profiles live in `runs/web-players/` by default. The bridge binds to the local computer and serves only the browser assets. Supabase, when configured, handles the match and its submitted shape. The waveform, derived features, and personalized model stay on the headset computer.
+The initial web model trains only on that session's 20 calibration trials. The game scores the prediction made before its label was known and uses the existing slow feedback policy for subsequent rounds. Calibration trials and discarded reads are excluded from the dashboard.
 
-The hosted static version supports the existing demo and manual play. The Vercel build publishes only the web assets in `web-dist/`. For a drag-and-drop deployment, run the build command in `vercel.json` and select that output folder.
+Each session saves a local `.npz` file in `runs/web-sessions/` by default. The archive contains 2 seconds of pre-GO EEG and all 5 seconds after GO per saved read, plus board setup, calibration labels, predictions, corrections, and computer moves. The decoder uses seconds 1–5 after GO. The browser can resume the session after a reload or a bridge restart with the same board settings. Use `--sessions` to choose a different local directory.
+
+```python
+import json
+import numpy as np
+
+with np.load("runs/web-sessions/SESSION_ID.npz", allow_pickle=False) as session:
+    metadata = json.loads(session["metadata"].item())
+    rest = session["baseline"]
+    imagery = session["eeg"]
+```
+
+The hosted static version supports demo and manual play. The local bridge handles actual headset capture, session files, and learning. For drag-and-drop deployment, run the build command in `vercel.json` and select `web-dist/`.
 
 ## Play and teach a personal decoder
 

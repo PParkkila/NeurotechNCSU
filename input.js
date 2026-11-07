@@ -38,48 +38,46 @@
     return id;
   }
 
-  async function post(path, data, signal) {
-    const response = await fetch(path, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), signal
-    });
+  async function checked(response) {
     if (!response.ok) {
       const detail = await response.json().catch(() => null);
-      throw new Error(typeof detail?.error === "string" ? detail.error : "The local EEG bridge could not complete the request.");
+      const error = new Error(typeof detail?.error === "string" ? detail.error : "The local EEG bridge could not complete the request.");
+      error.status = response.status;
+      throw error;
     }
     return response;
   }
 
-  async function capture(slot, playerName, onPhase, signal) {
-    const response = await post("/eeg/capture", { profile: profileFor(slot, playerName) }, signal);
+  async function post(path, data, signal) {
+    return checked(await fetch(path, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), signal
+    }));
+  }
+
+  async function streamCapture(data, resultField, onPhase, signal) {
+    const response = await post("/eeg/capture", data, signal);
+    if (!response.body) throw new Error("The local EEG bridge did not start a read.");
     const reader = response.body.getReader(), text = new TextDecoder();
-    let pending = "", prediction;
+    let pending = "", result;
     function consume(line) {
       if (!line.trim()) return;
       const event = JSON.parse(line);
       if (typeof event.error === "string") throw new Error(event.error);
       if (["rest", "go", "decoding"].includes(event.phase)) onPhase(event.phase);
-      if (event.prediction) {
-        const p = event.prediction;
-        if (typeof p.id !== "string" || !p.id || !window.NPShapes.LIST.includes(p.shape) ||
-            !Number.isFinite(p.score) || p.score < 0 || p.score > 1 ||
-            !["seed", "player"].includes(p.model) || !Number.isInteger(p.examples) || p.examples < 0) {
-          throw new Error("The local EEG bridge returned an invalid prediction.");
-        }
-        prediction = p;
-      }
+      if (event[resultField]) result = event[resultField];
     }
     try {
-      while (!prediction) {
+      while (!result) {
         const { value, done } = await reader.read();
         pending += text.decode(value, { stream: !done });
         const lines = pending.split("\n");
         pending = lines.pop();
         for (const line of lines) {
           consume(line);
-          if (prediction) break;
+          if (result) break;
         }
         if (done) {
-          if (!prediction) consume(pending);
+          if (!result) consume(pending);
           break;
         }
       }
@@ -87,8 +85,18 @@
       await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
-    if (!prediction) throw new Error("The headset read ended without a prediction.");
-    return prediction;
+    if (!result) throw new Error("The headset read ended without a result.");
+    return result;
+  }
+
+  async function capture(slot, playerName, onPhase, signal) {
+    const p = await streamCapture({ profile: profileFor(slot, playerName) }, "prediction", onPhase, signal);
+    if (typeof p.id !== "string" || !p.id || !window.NPShapes.LIST.includes(p.shape) ||
+        !Number.isFinite(p.score) || p.score < 0 || p.score > 1 ||
+        !["seed", "player"].includes(p.model) || !Number.isInteger(p.examples) || p.examples < 0) {
+      throw new Error("The local EEG bridge returned an invalid prediction.");
+    }
+    return p;
   }
 
   async function demo(onPhase) {
@@ -114,6 +122,16 @@
       const { examples } = await response.json();
       if (!Number.isInteger(examples) || examples < 0) throw new Error("The local EEG bridge did not acknowledge feedback.");
       return examples;
+    },
+    async getSession(session) {
+      const response = await checked(await fetch("/eeg/session?session=" + encodeURIComponent(session), { cache: "no-store" }));
+      return response.json();
+    },
+    async sessionAction(action, data) {
+      return (await post("/eeg/" + action, data)).json();
+    },
+    sessionCapture(session, question, onPhase) {
+      return streamCapture({ session, question }, "state", onPhase);
     }
   };
 })();

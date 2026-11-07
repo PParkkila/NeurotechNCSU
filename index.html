@@ -115,6 +115,10 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
 
     <section class="card"><h2>Rules</h2><div id="rules" class="rules"></div></section>
     <section class="card"><h2>Recent matches</h2><ul id="history" class="list"></ul></section>
+    <section id="sessionMetrics" class="card hidden" aria-labelledby="sessionMetricsTitle">
+      <h2 id="sessionMetricsTitle">EEG prediction metrics</h2>
+      <div id="sessionMetricsBody"></div>
+    </section>
   </main>
 
   <footer class="wrap muted">NeuroTech NCSU · NeuroPawn · [FILL IN: team / links]</footer>
@@ -125,6 +129,7 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
   <script src="battle.js"></script>
   <script src="input.js"></script>
   <script src="api.js"></script>
+  <script src="session-game.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -274,12 +274,22 @@ def play(args):
     play_game(args, load_session(args.session))
 
 
+def ordered_inputs(value):
+    try:
+        inputs = tuple(int(channel) for channel in value.split(","))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("Enter comma-separated board input numbers.") from exc
+    if any(channel < 1 or channel > 8 for channel in inputs) or len(inputs) != len(set(inputs)):
+        raise argparse.ArgumentTypeError("Use distinct board inputs from 1 to 8.")
+    return inputs
+
+
 def web(args):
     from .web import run_web
 
     if args.listen_port > 65535:
         raise ValueError("Choose a listen port between 1 and 65535.")
-    run_web(args, load_session(args.session))
+    run_web(args)
 
 
 def main():
@@ -325,15 +335,15 @@ def main():
     game.add_argument("--imu", action="store_true", help="Use the Knight Board IMU variant")
     game.set_defaults(run=play)
 
-    bridge = commands.add_parser("web", help="Serve the Shape Battle web app with local EEG teaching")
+    bridge = commands.add_parser("web", help="Serve Shape Battle with per-session EEG calibration")
     bridge.add_argument("--port", required=True, help="USB serial port for the NeuroPawn")
     bridge.add_argument("--imu", action="store_true", help="Use the Knight Board IMU variant")
-    bridge.add_argument("--session", type=Path,
-                        default=Path("runs/rps.npz"),
-                        help="Labeled three-move seed recording")
+    bridge.add_argument("--inputs", type=ordered_inputs, default=(1, 2, 6),
+                        help="Active board inputs in acquisition order (default 1,2,6)")
+    bridge.add_argument("--gain", type=int, choices=(1, 2, 3, 4, 6, 8, 12), default=4)
     bridge.add_argument("--listen-port", type=positive_int, default=8765, help="Local browser port")
-    bridge.add_argument("--profiles", type=Path, default=Path("runs/web-players"),
-                        help="Local directory for player feedback profiles")
+    bridge.add_argument("--sessions", type=Path, default=Path("runs/web-sessions"),
+                        help="Local directory for per-session EEG files")
     bridge.set_defaults(run=web)
 
     selection = commands.add_parser("select", help="Validate and draw with flicker-based EEG selection")

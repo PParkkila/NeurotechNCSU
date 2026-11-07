@@ -62,6 +62,23 @@ def _fit_seed(features, labels):
     return _FittedDecoder(scaler, components, classifier)
 
 
+def _fit_player(seed, seed_features, seed_labels, player_features, actual):
+    if not len(actual):
+        return seed
+    features = np.concatenate((seed_features, player_features))
+    labels = np.concatenate((seed_labels, np.asarray(actual, dtype=np.uint8)))
+    seed_counts = np.bincount(seed_labels, minlength=len(_CLASSES))
+    weights = np.concatenate((
+        np.full(len(seed_labels), _SEED_MASS / len(seed_labels)),
+        np.full(len(actual), _FEEDBACK_WEIGHT),
+    ))
+    # Preserve the seed's class masses and regularization scale throughout replay.
+    class_mass = np.bincount(labels, weights=weights, minlength=len(_CLASSES))
+    weights *= seed_counts[labels] / class_mass[labels]
+    classifier = LogisticRegression().fit(seed.project(features), labels, sample_weight=weights)
+    return _FittedDecoder(seed.scaler, seed.components, classifier)
+
+
 def _best_move(scores):
     best = int(np.argmax(scores))
     return _CLASSES[best], float(scores[best])
@@ -91,6 +108,23 @@ def _adaptation_state(examples) -> tuple[int, float]:
     target = count / (count + _BLEND_PRIOR) if eligible else 0.0
     weight = min(max(target, prior_weight - _BLEND_STEP), prior_weight + _BLEND_STEP)
     return count, weight
+
+
+def _predict_move(seed_model, player_model, row, examples, policy_examples, player_weight):
+    seed_scores = seed_model.scores(row)
+    seed = _best_move(seed_scores)
+    candidate = displayed = seed
+    if policy_examples:
+        blend = policy_examples / (policy_examples + _BLEND_PRIOR)
+        player_delta = player_model.scores(row) - seed_scores
+        candidate = _best_move(seed_scores + blend * player_delta)
+        displayed = _best_move(seed_scores + player_weight * player_delta)
+    move, confidence = displayed
+    return MovePrediction(
+        move=move, confidence=confidence, seed_move=seed[0], seed_confidence=seed[1],
+        examples=examples, candidate_move=candidate[0], candidate_confidence=candidate[1],
+        using_player=player_weight > 0, player_weight=player_weight,
+    )
 
 
 class PlayerDecoder:
@@ -186,20 +220,7 @@ class PlayerDecoder:
             return self._seed_model
         rows, confirmed, _ = zip(*examples)
         player_features = np.stack([np.frombuffer(row, dtype="<f8") for row in rows])
-        features = np.concatenate((self._seed_features, player_features))
-        labels = np.concatenate((self._seed_labels, np.array(confirmed, dtype=np.uint8)))
-
-        seed = self._seed_model
-        seed_counts = np.bincount(self._seed_labels, minlength=len(_CLASSES))
-        weights = np.concatenate((
-            np.full(len(self._seed_labels), _SEED_MASS / len(self._seed_labels)),
-            np.full(len(rows), _FEEDBACK_WEIGHT),
-        ))
-        # Preserve the seed's class masses and regularization scale throughout replay.
-        class_mass = np.bincount(labels, weights=weights, minlength=len(_CLASSES))
-        weights *= seed_counts[labels] / class_mass[labels]
-        classifier = LogisticRegression().fit(seed.project(features), labels, sample_weight=weights)
-        return _FittedDecoder(seed.scaler, seed.components, classifier)
+        return _fit_player(self._seed_model, self._seed_features, self._seed_labels, player_features, confirmed)
 
     def _read_examples(self, database):
         return database.execute("SELECT features, actual, prediction FROM examples ORDER BY rowid").fetchall()
@@ -229,19 +250,8 @@ class PlayerDecoder:
     def predict(self, features_1d) -> MovePrediction:
         row = self._row(features_1d)
         self._refresh()
-        seed_scores = self._seed_model.scores(row)
-        seed = _best_move(seed_scores)
-        candidate = displayed = seed
-        if self._policy_examples:
-            blend = self._policy_examples / (self._policy_examples + _BLEND_PRIOR)
-            player_delta = self._model.scores(row) - seed_scores
-            candidate = _best_move(seed_scores + blend * player_delta)
-            displayed = _best_move(seed_scores + self._player_weight * player_delta)
-        move, confidence = displayed
-        return MovePrediction(
-            move=move, confidence=confidence, seed_move=seed[0], seed_confidence=seed[1],
-            examples=self._examples, candidate_move=candidate[0], candidate_confidence=candidate[1],
-            using_player=self._player_weight > 0, player_weight=self._player_weight,
+        return _predict_move(
+            self._seed_model, self._model, row, self._examples, self._policy_examples, self._player_weight,
         )
 
     def teach(self, round_id: str, features_1d, actual: int, prediction: MovePrediction) -> int:
