@@ -15,15 +15,15 @@ This is a functioning prototype.
 
 ## Limitations
 
-* if any
+* This system is only able to detect which of the three preset shapes a user is thinking of, rather than drawing the shapes itself. 
 
 ---
 
 # NeuroPawn Dashboard
 
-Static website (HTML/CSS/JS) + Supabase database, deployed on Vercel. 
+Static website (HTML/CSS/JS) + Supabase database, deployed on Vercel. (!!!!)
 
-## What it does
+## What it does (!!!)
 - **Dashboard**: create a match, see each player's status (shapes stay hidden), press **Battle** once both have gone, see the result and both shapes.
 - **Play**: draw a shape on a canvas and lock it in (strokes are saved too, for the "drawing signals" idea). Game iframe placeholder lives here.
 - **Questionnaire**: editable list in `js/questions.js`; answers saved to Supabase.
@@ -32,17 +32,7 @@ Static website (HTML/CSS/JS) + Supabase database, deployed on Vercel.
 
 ## Folder layout
 ```
-index.html        page
-css/styles.css    styling
-js/config.js      <-- paste Supabase URL + anon key here
-js/api.js         all database calls (Supabase, or demo mode)
-js/app.js         UI logic
-js/battle.js      battle rules
-js/draw.js        drawing pad + rough shape scoring
-js/questions.js   questionnaire (edit freely)
-game/             <-- put the game here (see game/README.md)
-supabase/schema.sql  database setup
-vercel.json
+fill in
 ```
 
 ## Setup
@@ -67,7 +57,7 @@ Made for Neurotech Hackathon 2026
 **AI assistance:** Most of the code in this project was written with AI assistance:
 
 * **Claude** (Anthropic) wrote the code for the game dashboard. 
-* **Codex** (OpenAI) wrote the code for the overall game, well as prototyping and calibration.
+* **Codex** (OpenAI) wrote the code for the overall game, well as prototyping, data collection, and calibration.
 
 The team defined the project goals, directed the design, built and wired the hardware, tested the system, and integrated and debugged everything.
 
