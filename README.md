@@ -4,7 +4,7 @@ Repo hosting code for Neurotech event at NCSU Fall 2026
 
 ## Credits
 
-**Team:** Natalia Bernardo
+**Team:** Ishan Hitesh Mistry, Khrystyna Lukecha, Patrik Parkkila, Natalia Bernardo
 
 Made for Neurotech Hackathon 2026
 
