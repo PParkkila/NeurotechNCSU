@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+runs/
+*.npz
+!data/neuropawn-rps-seed.npz
+*.sqlite3
+*.sqlite3-*
+.DS_Store
