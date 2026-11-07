@@ -18,7 +18,11 @@ from sklearn.preprocessing import StandardScaler
 
 _CLASSES = (0, 1, 2)
 _COMPONENTS = 5
-_SEED_MASS_PER_CLASS = 6.0
+_SEED_MASS = 18.0
+_FEEDBACK_WEIGHT = 0.25
+_BLEND_PRIOR = 48
+_BLEND_STEP = 0.05
+_POLICY_VERSION = 2
 _SCHEMA_VERSION = 2
 
 
@@ -32,6 +36,8 @@ class MovePrediction:
     candidate_move: int
     candidate_confidence: float
     using_player: bool
+    policy_version: int = _POLICY_VERSION
+    player_weight: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,41 +46,51 @@ class _FittedDecoder:
     components: np.ndarray
     classifier: LogisticRegression
 
-    def predict(self, features: np.ndarray) -> tuple[int, float]:
-        projected = self.scaler.transform(features[None]) @ self.components.T
-        scores = self.classifier.predict_proba(projected)[0]
-        best = int(np.argmax(scores))
-        return int(self.classifier.classes_[best]), float(scores[best])
+    def project(self, features: np.ndarray) -> np.ndarray:
+        return self.scaler.transform(features) @ self.components.T
+
+    def scores(self, features: np.ndarray) -> np.ndarray:
+        return self.classifier.predict_proba(self.project(features[None]))[0]
 
 
-def _fit(features, labels, weights=None):
-    scaler = StandardScaler().fit(features, sample_weight=weights)
+def _fit_seed(features, labels):
+    scaler = StandardScaler().fit(features)
     scaled = scaler.transform(features)
     count = min(_COMPONENTS, len(features) - 1, features.shape[1])
-    if weights is None:
-        components = PCA(n_components=count, svd_solver="full").fit(scaled).components_
-    else:
-        # The weighted scaler centers these rows before the weighted SVD.
-        _, _, vectors = np.linalg.svd(scaled * np.sqrt(weights[:, None]), full_matrices=False)
-        components = vectors[:count]
-    classifier = LogisticRegression().fit(scaled @ components.T, labels, sample_weight=weights)
+    components = PCA(n_components=count, svd_solver="full").fit(scaled).components_
+    classifier = LogisticRegression().fit(scaled @ components.T, labels)
     return _FittedDecoder(scaler, components, classifier)
 
 
-def _earned_adaptation(examples) -> bool:
-    """Compare the two predictions captured before each reported move."""
-    if len(examples) < 12:
-        return False
+def _best_move(scores):
+    best = int(np.argmax(scores))
+    return _CLASSES[best], float(scores[best])
+
+
+def _adaptation_evidence(examples) -> tuple[int, bool]:
+    """Use predictions recorded before feedback under the current learning policy."""
     counts = [0] * len(_CLASSES)
     gain = [0] * len(_CLASSES)
     for _, actual, metadata in examples:
         prediction = json.loads(metadata)
+        if prediction.get("policy_version") != _POLICY_VERSION:
+            continue
         counts[actual] += 1
         gain[actual] += int(prediction["candidate_move"] == actual) - int(prediction["seed_move"] == actual)
-    if min(counts) < 3 or sum(gain) < 2:
-        return False
+    total = sum(counts)
+    if total < 12 or min(counts) < 3 or sum(gain) < 2:
+        return total, False
     balanced_gain = sum(Fraction(hits, count) for hits, count in zip(gain, counts)) / len(_CLASSES)
-    return balanced_gain >= Fraction(1, 10)
+    return total, balanced_gain >= Fraction(1, 10)
+
+
+def _adaptation_state(examples) -> tuple[int, float]:
+    count, eligible = _adaptation_evidence(examples)
+    previous = json.loads(examples[-1][2]) if examples else {}
+    prior_weight = previous.get("weight_before_feedback", 0.0)
+    target = count / (count + _BLEND_PRIOR) if eligible else 0.0
+    weight = min(max(target, prior_weight - _BLEND_STEP), prior_weight + _BLEND_STEP)
+    return count, weight
 
 
 class PlayerDecoder:
@@ -109,12 +125,13 @@ class PlayerDecoder:
         self._seed_model = None
         self._model = None
         self._examples = 0
-        self._using_player = False
+        self._policy_examples = 0
+        self._player_weight = 0.0
 
     def __enter__(self) -> PlayerDecoder:
         if self._model is not None:
             raise RuntimeError("This player decoder is already open.")
-        self._seed_model = self._model = _fit(self._seed_features, self._seed_labels)
+        self._seed_model = self._model = _fit_seed(self._seed_features, self._seed_labels)
         try:
             self._refresh()
         except BaseException:
@@ -125,7 +142,8 @@ class PlayerDecoder:
     def __exit__(self, exc_type, exc, traceback) -> None:
         self._seed_model = self._model = None
         self._examples = 0
-        self._using_player = False
+        self._policy_examples = 0
+        self._player_weight = 0.0
 
     def _row(self, features) -> np.ndarray:
         if self._model is None:
@@ -171,25 +189,32 @@ class PlayerDecoder:
         features = np.concatenate((self._seed_features, player_features))
         labels = np.concatenate((self._seed_labels, np.array(confirmed, dtype=np.uint8)))
 
+        seed = self._seed_model
         seed_counts = np.bincount(self._seed_labels, minlength=len(_CLASSES))
-        weights = np.concatenate((_SEED_MASS_PER_CLASS / seed_counts[self._seed_labels], np.ones(len(rows))))
-        # Give the classes equal total weight without changing their internal seed/player mix.
+        weights = np.concatenate((
+            np.full(len(self._seed_labels), _SEED_MASS / len(self._seed_labels)),
+            np.full(len(rows), _FEEDBACK_WEIGHT),
+        ))
+        # Preserve the seed's class masses and regularization scale throughout replay.
         class_mass = np.bincount(labels, weights=weights, minlength=len(_CLASSES))
-        weights *= class_mass.mean() / class_mass[labels]
-        return _fit(features, labels, weights)
+        weights *= seed_counts[labels] / class_mass[labels]
+        classifier = LogisticRegression().fit(seed.project(features), labels, sample_weight=weights)
+        return _FittedDecoder(seed.scaler, seed.components, classifier)
 
     def _read_examples(self, database):
         return database.execute("SELECT features, actual, prediction FROM examples ORDER BY rowid").fetchall()
 
     def _profile_state(self, examples):
         if len(examples) == self._examples:
-            return self._model, self._using_player
-        return self._fit_examples(examples), _earned_adaptation(examples)
+            return self._model, self._policy_examples, self._player_weight
+        count, player_weight = _adaptation_state(examples)
+        return self._fit_examples(examples), count, player_weight
 
     def _refresh(self) -> None:
         if not self._profile.exists():
             self._model, self._examples = self._seed_model, 0
-            self._using_player = False
+            self._policy_examples = 0
+            self._player_weight = 0.0
             return
         try:
             uri = f"{self._profile.as_uri()}?mode=ro"
@@ -198,19 +223,25 @@ class PlayerDecoder:
                 examples = self._read_examples(database) if self._check_profile(database) else []
         except sqlite3.Error as exc:
             raise RuntimeError(f"Could not read player profile {self._profile}. {exc}") from exc
-        self._model, self._using_player = self._profile_state(examples)
+        self._model, self._policy_examples, self._player_weight = self._profile_state(examples)
         self._examples = len(examples)
 
     def predict(self, features_1d) -> MovePrediction:
         row = self._row(features_1d)
         self._refresh()
-        seed = self._seed_model.predict(row)
-        candidate = seed if self._model is self._seed_model else self._model.predict(row)
-        move, confidence = candidate if self._using_player else seed
+        seed_scores = self._seed_model.scores(row)
+        seed = _best_move(seed_scores)
+        candidate = displayed = seed
+        if self._policy_examples:
+            blend = self._policy_examples / (self._policy_examples + _BLEND_PRIOR)
+            player_delta = self._model.scores(row) - seed_scores
+            candidate = _best_move(seed_scores + blend * player_delta)
+            displayed = _best_move(seed_scores + self._player_weight * player_delta)
+        move, confidence = displayed
         return MovePrediction(
             move=move, confidence=confidence, seed_move=seed[0], seed_confidence=seed[1],
             examples=self._examples, candidate_move=candidate[0], candidate_confidence=candidate[1],
-            using_player=self._using_player,
+            using_player=self._player_weight > 0, player_weight=self._player_weight,
         )
 
     def teach(self, round_id: str, features_1d, actual: int, prediction: MovePrediction) -> int:
@@ -223,7 +254,6 @@ class PlayerDecoder:
         if not isinstance(prediction, MovePrediction):
             raise ValueError("Teaching requires the prediction made before the move was reported.")
         actual = int(actual)
-        metadata = json.dumps(asdict(prediction), allow_nan=False)
         self._profile.parent.mkdir(parents=True, exist_ok=True)
         try:
             with closing(sqlite3.connect(self._profile)) as database, database:
@@ -232,16 +262,20 @@ class PlayerDecoder:
                 existing = database.execute(
                     "SELECT features, actual FROM examples WHERE round_id = ?", (round_id,)
                 ).fetchone()
+                if existing is not None and existing != (row, actual):
+                    raise ValueError("This round ID already has a different confirmed move or feature row.")
+                examples = self._read_examples(database)
                 if existing is None:
+                    # A confirmation may arrive after another round has already taught this profile.
+                    _, prior_weight = _adaptation_state(examples)
+                    metadata = json.dumps(dict(asdict(prediction), weight_before_feedback=prior_weight), allow_nan=False)
                     database.execute(
                         "INSERT INTO examples VALUES (?, ?, ?, ?)", (round_id, row, actual, metadata)
                     )
-                elif existing != (row, actual):
-                    raise ValueError("This round ID already has a different confirmed move or feature row.")
-                examples = self._read_examples(database)
-                model, using_player = self._profile_state(examples)
+                    examples.append((row, actual, metadata))
+                model, policy_examples, player_weight = self._profile_state(examples)
         except sqlite3.Error as exc:
             raise RuntimeError(f"Could not save player profile {self._profile}. {exc}") from exc
-        self._model, self._using_player = model, using_player
+        self._model, self._policy_examples, self._player_weight = model, policy_examples, player_weight
         self._examples = len(examples)
         return self._examples
