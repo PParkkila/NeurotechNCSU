@@ -9,7 +9,7 @@ Repo hosting code for Neurotech event at NCSU Fall 2026
 
 By analyzing Fourier coefficients from brainwaves based on what shapes the user is thinking of, we are able to replicate this many times, allowing for 2 user to play against each other in a rough game of rock paper scissors using predetermined shapes. 
 
-Live site:()
+Live site: drop "" into https://vercel.com/drop 
 
 This is a functioning prototype.
 
