@@ -21,9 +21,9 @@ This is a functioning prototype.
 
 ---
 
-# NeuroPawn Dashboard
+# NeuroPawn Dashboard (!!)
 
-Static website (HTML/CSS/JS) + Supabase database, deployed on Vercel. (!!!!)
+Static website (HTML/CSS/JS) + ... (!!!!)
 
 ## What it does (!!!)
 - **Dashboard**: create a match, see each player's status (shapes stay hidden), press **Battle** once both have gone, see the result and both shapes.
@@ -37,10 +37,7 @@ fill in
 ```
 
 ## Notes (rough draft - NEEDS OBVIOUS CHANGE)
-- Hidden shapes are enforced in the database: the site reads from the `matches_public` view, which returns shapes only after `status = 'revealed'`.
-- There are no logins. Anyone with a match code can submit or press Battle. Fine for a demo or club event; add Supabase Auth before anything public.
-- The shape detection in `js/draw.js` is a simple circularity heuristic, so expect it to misjudge sloppy drawings. In the default rule the shape the player *selects* is what counts.
-- Live updates use polling every 3 s (`POLL_MS` in `config.js`).
+- ....
 
 ## Credits
 
