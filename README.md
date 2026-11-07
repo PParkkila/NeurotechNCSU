@@ -10,9 +10,9 @@ Made for Neurotech Hackathon 2026
 
 **AI assistance:** Most of the code in this project was written with AI assistance:
 
-* **Claude** (Anthropic) wrote 
-* **Codex** (OpenAI) wrote 
+* **Claude** (Anthropic) wrote the code for the game dashboard. 
+* **Codex** (OpenAI) wrote the code for the overall game, well as prototyping and calibration.
 
 The team defined the project goals, directed the design, built and wired the hardware, tested the system, and integrated and debugged everything.
 
-**Services and tools:** NeuroPawn
+**Services and tools:** NeuroPawn, Vercel
