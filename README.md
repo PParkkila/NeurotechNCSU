@@ -7,7 +7,7 @@ Repo hosting code for Neurotech event at NCSU Fall 2026
 
 Desc...
 
-Live site:()
+Live site:(https://neurotechncsu.vercel.app/)
 
 This is a functioning prototype.
 
