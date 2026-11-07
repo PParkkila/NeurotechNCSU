@@ -42,7 +42,7 @@ fill in
 4. **GitHub**: put this folder in your repo (e.g. `/dashboard`, or at the repo root).
 5. **Vercel**: if it's in a subfolder, set *Project Settings → Root Directory* to that folder (or add it as a separate Vercel project). Framework preset: **Other**. Push, and it deploys.
 
-## Notes (rough draft)
+## Notes (rough draft - NEEDS OBVIOUS CHANGE)
 - Hidden shapes are enforced in the database: the site reads from the `matches_public` view, which returns shapes only after `status = 'revealed'`.
 - There are no logins. Anyone with a match code can submit or press Battle. Fine for a demo or club event; add Supabase Auth before anything public.
 - The shape detection in `js/draw.js` is a simple circularity heuristic, so expect it to misjudge sloppy drawings. In the default rule the shape the player *selects* is what counts.
