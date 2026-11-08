@@ -41,6 +41,8 @@ def load_session(path):
             "task": task,
             "gain": int(archive["gain"].item()) if "gain" in archive else None,
             "inputs": tuple(archive["inputs"].tolist()) if "inputs" in archive else None,
+            "imu": bool(archive["imu"].item()) if "imu" in archive else False,
+            "protocol": str(archive["protocol"].item()) if "protocol" in archive else None,
             "baseline": archive["baseline"] if "baseline" in archive else None,
         }
 
@@ -103,6 +105,47 @@ def record(args):
             print(f"\nCompleted blocks saved in {args.out}.", file=sys.stderr)
         raise
     print(f"Saved {len(data['labels'])} trials to {args.out}.")
+
+
+def record_rps150(args):
+    from .recording import NeuroPawn
+    from .rps_dataset import BLOCK_COUNT, PROTOCOL, SKIP_SECONDS, TRIALS_PER_BLOCK, collect_rapid, dataset_configuration
+
+    previous = None
+    if args.resume:
+        previous = load_session(args.out)
+        setup = dataset_configuration(previous, complete=False)
+        if (setup["inputs"], setup["gain"], setup["imu"]) != (args.inputs, args.gain, args.imu):
+            raise ValueError("Resume with the same inputs in order, gain, and board variant.")
+        if len(previous["labels"]) == BLOCK_COUNT * TRIALS_PER_BLOCK:
+            print(f"The 150-trial dataset in {args.out} is already complete.")
+            return
+    elif args.out.exists():
+        raise ValueError(f"Choose a new path or use --resume. {args.out} already exists.")
+
+    def checkpoint(data):
+        save_session(args.out, dict(data, task="rps", gain=board.gain, inputs=board.inputs,
+                                   imu=board.imu, protocol=PROTOCOL), source="neuropawn", skip=SKIP_SECONDS)
+
+    print(f"Using board inputs {args.inputs} at gain {args.gain}. Keep the reference connected.", flush=True)
+    try:
+        with NeuroPawn(args.port, imu=args.imu, inputs=args.inputs, gain=args.gain) as board:
+            if board.fs != 125:
+                raise ValueError("The website trainer expects the NeuroPawn's 125 Hz mode.")
+            count = collect_rapid(board, on_block=checkpoint, previous=previous)
+    except (KeyboardInterrupt, EOFError, OSError, RuntimeError):
+        if args.out.exists():
+            print(f"\nCompleted blocks saved in {args.out}. Use --resume to continue.", file=sys.stderr)
+        raise
+    print(f"Saved {count} trials (50 of each shape) to {args.out}.")
+
+
+def export_rps150(args):
+    from .rps_dataset import export_dataset
+
+    out = args.out or args.session.with_suffix(".json")
+    export_dataset(out, load_session(args.session))
+    print(f"Saved {out}. Select it in Shape Battle to train the model.")
 
 
 def simulate(args):
@@ -305,6 +348,20 @@ def main():
                          help="Use layouts, cued shapes, or private three-move imagery")
     capture.add_argument("--seed", type=int)
     capture.set_defaults(run=record)
+
+    rapid = commands.add_parser("record-rps150", help="Record 50 trials per shape with automatic cues")
+    rapid.add_argument("--port", required=True, help="USB serial port for the NeuroPawn")
+    rapid.add_argument("--inputs", type=ordered_inputs, required=True, help="Posterior board inputs in acquisition order")
+    rapid.add_argument("--out", type=Path, default=Path("runs/rps-150.npz"))
+    rapid.add_argument("--gain", type=int, choices=(1, 2, 3, 4, 6, 8, 12), default=4)
+    rapid.add_argument("--imu", action="store_true", help="Use the Knight Board IMU variant")
+    rapid.add_argument("--resume", action="store_true", help="Continue from the last complete block in --out")
+    rapid.set_defaults(run=record_rps150)
+
+    export = commands.add_parser("export-rps150", help="Prepare a completed rapid-fire dataset for Shape Battle")
+    export.add_argument("--session", type=Path, default=Path("runs/rps-150.npz"))
+    export.add_argument("--out", type=Path, help="Output JSON (defaults to the session name with a .json extension)")
+    export.set_defaults(run=export_rps150)
 
     mock = commands.add_parser("simulate", help="Create synthetic data to check the software")
     mock.add_argument("--out", type=Path, default=Path("runs/synthetic.npz"))

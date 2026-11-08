@@ -42,17 +42,25 @@
   function start(bridge, EEG) {
     const S = window.NPShapes, B = window.NPBattle;
     const browser = typeof EEG.downloadSession === "function";
+    const canImport = typeof EEG.importDataset === "function";
+    const rapidTraining = Number.isFinite(bridge.cue_seconds);
     const storageKey = browser ? "np_webserial_calibration_session" : "np_eeg_calibration_session";
     const setup = $("setup"), newPlayer = $("newP1"), newGame = $("btnNew"), resume = $("btnResume");
     let state = null, pick = null, busy = null, capturePhase = "starting", error = "", setupError = "";
     const download = $("btnDownloadSession");
-    let savedSession, exporting = false;
+    const pauseTraining = $("btnPauseTraining");
+    const datasetFile = $("datasetFile"), trainDataset = $("btnImportDataset");
+    let savedSession, exporting = false, pauseRequested = false;
     try { savedSession = localStorage.getItem(storageKey); } catch { /* storage unavailable */ }
 
     $("modePill").textContent = browser ? "● NeuroPawn connected over USB" : "● EEG bridge connected (local game)";
     $("modePill").className = "pill live";
     $("btnRematch").textContent = "Next round";
-    $("calibrationIntro").textContent = `Complete ${bridge.calibration_count ?? 20} EEG reads before your first round against the computer.`;
+    const reads = bridge.calibration_count ?? 20;
+    $("calibrationIntro").textContent = rapidTraining
+      ? `Train on ${reads} trials, 50 per shape. Rest at +, read the shape name, then imagine it at GO. Trials advance automatically. Allow about 20 minutes, plus breaks.`
+      : `Complete ${reads} EEG reads before your first round against the computer.`;
+    $("datasetSetup").classList.toggle("hidden", !canImport);
 
     function accept(next) {
       if (!next || typeof next.id !== "string" || !next.calibration || !next.metrics ||
@@ -75,7 +83,12 @@
 
     function captureHTML() {
       if (capturePhase === "rest") return `<div class="big">+</div><p>Rest. Keep your eyes on the cross.</p>${progress(bridge.rest_seconds)}`;
+      if (capturePhase === "cue") return `<div class="shapeLabel">${cap(state.calibration.prompt)}</div><p>Remember this shape.</p>${progress(bridge.cue_seconds)}`;
       if (capturePhase === "go") return `<div class="big go">GO</div><p>Imagine your shape. Hold still.</p>${progress(bridge.imagery_seconds)}`;
+      if (capturePhase === "decoding" && state.phase === "calibration" && state.calibration.rapidFire) {
+        const finishing = state.calibration.completed + 1 === state.calibration.total;
+        return `<div class="big">…</div><p>${finishing ? "Training model…" : "Saving trial…"}</p>`;
+      }
       if (capturePhase === "decoding") return '<div class="big">…</div><p>Decoding…</p>';
       return '<div class="big">+</div><p>Get ready. Keep your eyes on the cross.</p>';
     }
@@ -102,12 +115,20 @@
       if (busy === "confirm") return '<div class="big">…</div><p>Saving feedback…</p>';
       const { phase, calibration, round } = state;
       if (phase === "calibration") {
+        if (calibration.rapidFire) {
+          return '<p>Rest at +, remember the cue, then imagine it at GO.</p>' +
+            '<button class="primary" data-act="capture">Continue training</button>';
+        }
         return `<p class="muted">Remember this shape</p><div class="shapeLabel">${cap(calibration.prompt)}</div>` +
           '<button class="primary" data-act="capture">Start calibration read</button>';
       }
       if (phase === "ready") {
-        const completed = state.metrics.total === 0
-          ? `<p class="muted tiny">${calibration.completed} of ${calibration.total} calibration reads saved</p>` : "";
+        const { dataset } = state;
+        const completed = dataset
+          ? `<p class="muted tiny">Trained on ${calibration.completed} dataset trials.</p>` +
+            `<p class="muted tiny">A decoder trained on the first eight blocks matched ${dataset.holdoutCorrect} of ${dataset.holdoutTotal} ` +
+            `prompts in the last two blocks (${percent(dataset.holdoutCorrect / dataset.holdoutTotal, 1)}).</p>`
+          : `<p class="muted tiny">${calibration.completed} of ${calibration.total} calibration reads saved</p>`;
         return '<p>Imagine any shape when GO appears.</p><button class="primary" data-act="capture">Start brainwave read</button>' + completed;
       }
       if (phase === "review") {
@@ -152,13 +173,22 @@
     function render() {
       newGame.disabled = !!busy;
       newPlayer.disabled = !!busy;
-      newGame.textContent = state ? "Start new calibration" : "Start calibration";
+      newGame.textContent = rapidTraining
+        ? state ? "Start new training" : "Start training"
+        : state ? "Start new calibration" : "Start calibration";
       resume.classList.toggle("hidden", !!state || !savedSession);
       resume.disabled = !!busy;
+      datasetFile.disabled = !!busy;
+      trainDataset.disabled = !!busy || !datasetFile.files.length;
+      trainDataset.textContent = busy === "import" ? "Training from dataset…" : "Train from dataset";
       $("setupError").textContent = setupError;
       $("arena").classList.toggle("hidden", !state);
       $("sessionFile").classList.toggle("hidden", !browser || !state);
       download.disabled = !!busy || exporting;
+      const rapidCapture = busy === "capture" && state?.phase === "calibration" && state.calibration.rapidFire;
+      pauseTraining.classList.toggle("hidden", !rapidCapture);
+      pauseTraining.disabled = !rapidCapture || pauseRequested;
+      pauseTraining.textContent = pauseRequested ? "Pausing after this trial…" : "Pause after this trial";
       renderMetrics();
       if (!state) return;
 
@@ -171,12 +201,13 @@
       const winner = revealed ? B.decide(round.confirmed, round.computer) : null;
       const tally = { p1: 0, p2: 0, tie: 0 };
       for (const item of state.results ?? []) tally[B.decide(item.player, item.computer)]++;
-      $("codeShow").textContent = calibrating ? "Calibration" : "EEG game";
+      const trainingLabel = calibration.rapidFire ? "Training" : "Calibration";
+      $("codeShow").textContent = calibrating ? trainingLabel : "EEG game";
       $("scoreboard").innerHTML = calibrating ? `${calibration.completed} of ${calibration.total} reads saved`
         : `<b>${escape(player)}</b> ${tally.p1} · ${tally.tie} draw${tally.tie === 1 ? "" : "s"} · ${tally.p2} <b>Computer</b>`;
 
       const tag = winner === "tie" ? "Draw" : winner === "p1" ? "Winner" : confirmed ? "Locked"
-        : calibrating ? "Calibration" : revealed ? "" : "Your turn";
+        : calibrating ? trainingLabel : revealed ? "" : "Your turn";
       const feedback = error ? `<p class="err" role="alert">${escape(error)}</p>` : "";
       slot("slot1", player, tag, playerHTML() + feedback, !revealed && !confirmed, winner === "p1");
       const computerLocked = confirmed || phase === "review";
@@ -191,7 +222,7 @@
         const [win, lose] = winner === "p1" ? [round.confirmed, round.computer] : [round.computer, round.confirmed];
         banner.textContent = winner === "tie" ? `Both chose ${cap(round.confirmed)}. It's a draw!`
           : `${cap(win)} beats ${lose}. ${winner === "p1" ? player : "Computer"} wins!`;
-      } else if (calibrating) banner.textContent = `Calibration read ${calibration.completed + 1} of ${calibration.total}`;
+      } else if (calibrating) banner.textContent = `${trainingLabel} ${calibration.rapidFire ? "trial" : "read"} ${calibration.completed + 1} of ${calibration.total}`;
       else if (confirmed) banner.textContent = "Both shapes are locked. Press Battle!";
       else banner.textContent = phase === "review" ? "Review your EEG prediction." : "Imagine your next move.";
       $("btnBattle").classList.toggle("hidden", !confirmed);
@@ -203,24 +234,28 @@
     async function run(action, request) {
       if (busy) return;
       const previous = state;
+      const startsSession = action === "start" || action === "import";
+      const setupAction = startsSession || action === "resume";
       busy = action;
       capturePhase = "starting";
       error = setupError = "";
       render();
       try {
         const next = await request();
-        if (action !== "start" && previous && next?.id !== previous.id) {
+        if (!startsSession && previous && next?.id !== previous.id) {
           throw new Error("The local EEG bridge returned another session.");
         }
         accept(next);
-        if (action === "start" || action === "resume") {
+        if (setupAction) {
           savedSession = state.id;
           try { localStorage.setItem(storageKey, savedSession); } catch { /* storage unavailable */ }
           newPlayer.value = state.player;
           setup.open = false;
+          if (action === "import") datasetFile.value = "";
         }
+        return true;
       } catch (err) {
-        if (action === "start" || action === "resume") {
+        if (setupAction) {
           setupError = err.message;
           if (action === "resume" && [404, 410].includes(err.status)) {
             savedSession = null;
@@ -229,12 +264,13 @@
         } else {
           error = err.message;
           // A lost response or another tab may already have advanced this session.
+          const beforeRefresh = state;
           try {
             const latest = await EEG.getSession(previous.id);
             if (latest?.id === previous.id) {
               accept(latest);
-              if (state.phase !== previous.phase || state.calibration.completed !== previous.calibration.completed ||
-                  state.round?.id !== previous.round?.id) error = "";
+              if (state.phase !== beforeRefresh.phase || state.calibration.completed !== beforeRefresh.calibration.completed ||
+                  state.round?.id !== beforeRefresh.round?.id) error = "";
             }
           } catch { /* leave the original action available for retry */ }
         }
@@ -247,18 +283,39 @@
     function capture() {
       if (busy || !state || !["calibration", "ready", "result"].includes(state.phase)) return;
       const session = state.id;
-      const question = state.phase === "calibration" ? state.calibration.completed : null;
+      const rapid = state.phase === "calibration" && state.calibration.rapidFire;
+      pauseRequested = false;
       return run("capture", async () => {
         // Paint the neutral screen before the bridge starts recording.
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        return EEG.sessionCapture(session, question, (phase) => {
+        const onPhase = (phase) => {
           if (busy === "capture" && state.id === session) { capturePhase = phase; render(); }
-        });
+        };
+        do {
+          const question = state.phase === "calibration" ? state.calibration.completed : null;
+          const next = await EEG.sessionCapture(session, question, onPhase);
+          if (!rapid || next?.id !== session) return next;
+          accept(next);
+        } while (state.phase === "calibration" && !pauseRequested);
+        return state;
       });
     }
 
-    newGame.onclick = () => run("start", () =>
-      EEG.sessionAction("session", { player: newPlayer.value.trim() || "Player" }));
+    newGame.onclick = async () => {
+      const started = await run("start", () =>
+        EEG.sessionAction("session", { player: newPlayer.value.trim() || "Player" }));
+      if (started && state.calibration.rapidFire) return capture();
+    };
+    pauseTraining.onclick = () => {
+      pauseRequested = true;
+      pauseTraining.disabled = true;
+      pauseTraining.textContent = "Pausing after this trial…";
+    };
+    datasetFile.onchange = render;
+    trainDataset.onclick = () => {
+      const file = datasetFile.files[0];
+      if (canImport && file) return run("import", () => EEG.importDataset(file, newPlayer.value.trim() || "Player"));
+    };
     resume.onclick = () => {
       if (savedSession) return run("resume", () => EEG.getSession(savedSession));
     };

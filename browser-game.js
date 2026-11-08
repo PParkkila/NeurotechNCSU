@@ -1,9 +1,15 @@
 // The hosted game uses the same view as the Python bridge. EEG stays on this device.
 (function () {
   const SHAPES = window.NPShapes.LIST;
-  const CALIBRATION_PER_SHAPE = 3;
   const REST_SECONDS = 2;
+  const CUE_SECONDS = 1;
   const IMAGERY_SECONDS = 5;
+  const DATASET_FORMAT = "neuropawn-rps-dataset";
+  const DATASET_BLOCKS = 10;
+  const TRIALS_PER_BLOCK = 15;
+  const TRIAL_COUNT = DATASET_BLOCKS * TRIALS_PER_BLOCK;
+  const TRAINING_BLOCKS = DATASET_BLOCKS - 2;
+  const MAX_DATASET_BYTES = 32 * 1024 * 1024;
   const byte = new Uint8Array(1);
   const now = () => new Date().toISOString();
 
@@ -14,12 +20,14 @@
   }
 
   function schedule() {
-    const prompts = SHAPES.flatMap((_, index) => Array(CALIBRATION_PER_SHAPE).fill(index));
-    for (let i = prompts.length - 1; i > 0; i--) {
-      const j = randomBelow(i + 1);
-      [prompts[i], prompts[j]] = [prompts[j], prompts[i]];
-    }
-    return prompts;
+    return Array.from({ length: DATASET_BLOCKS }, () => {
+      const block = SHAPES.flatMap((_, index) => Array(TRIALS_PER_BLOCK / SHAPES.length).fill(index));
+      for (let i = block.length - 1; i > 0; i--) {
+        const j = randomBelow(i + 1);
+        [block[i], block[j]] = [block[j], block[i]];
+      }
+      return block;
+    }).flat();
   }
 
   function shapeCounts(confusion) {
@@ -75,9 +83,15 @@
       }
     }
     const perShape = shapeCounts(confusion);
+    const dataset = record.dataset;
     return {
       id: record.id, player: record.player, phase, round, results,
-      calibration: { completed, total, prompt: SHAPES[record.schedule[completed]] ?? null },
+      calibration: { completed, total, prompt: SHAPES[record.schedule[completed]] ?? null, rapidFire: record.rapidFire === true },
+      dataset: dataset ? {
+        holdoutTotal: dataset.heldOut.length,
+        holdoutCorrect: dataset.heldOut.filter(({ actual, raw_probabilities: scores }) =>
+          scores.indexOf(Math.max(...scores)) === actual).length,
+      } : null,
       metrics: { ...metrics(perShape, history.length), history,
         per_shape: perShape, last_confirmed: lastConfirmed },
     };
@@ -87,15 +101,61 @@
     return { fs: board.fs, inputs: [...board.inputs], gain: board.gain, imu: !!board.imu };
   }
 
+  function matchingConfiguration(saved, current) {
+    return saved?.fs === current.fs && saved.gain === current.gain && saved.imu === current.imu &&
+      Array.isArray(saved.inputs) && saved.inputs.length === current.inputs.length &&
+      saved.inputs.every((input, index) => input === current.inputs[index]);
+  }
+
+  async function readDataset(file, setup) {
+    if (!file || file.size < 1 || file.size > MAX_DATASET_BYTES) {
+      throw new Error("Choose a dataset JSON file of up to 32 MB.");
+    }
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch {
+      throw new Error("The dataset file could not be read as JSON.");
+    }
+    if (data?.format !== DATASET_FORMAT || data.version !== 1 || !Array.isArray(data.trials) ||
+        data.trials.length !== TRIAL_COUNT) {
+      throw new Error("Choose a 150-trial NeuroPawn dataset exported by export-rps150.");
+    }
+    if (!matchingConfiguration(data.configuration, setup)) {
+      throw new Error("The dataset uses different board settings. Reconnect with its input order, gain, and board variant.");
+    }
+
+    function validEpoch(epoch, seconds) {
+      return Array.isArray(epoch) && epoch.length === setup.inputs.length && epoch.every((channel) =>
+        Array.isArray(channel) && channel.length === seconds * setup.fs && channel.every(Number.isFinite));
+    }
+
+    for (let offset = 0; offset < data.trials.length; offset += TRIALS_PER_BLOCK) {
+      const block = 1 + offset / TRIALS_PER_BLOCK;
+      const counts = SHAPES.map(() => 0);
+      for (const trial of data.trials.slice(offset, offset + TRIALS_PER_BLOCK)) {
+        if (trial?.block !== block || !Number.isInteger(trial.label) || SHAPES[trial.label] === undefined ||
+            !validEpoch(trial.baseline, REST_SECONDS) || !validEpoch(trial.eeg, IMAGERY_SECONDS - 1)) {
+          throw new Error(`Dataset block ${block} contains an invalid trial.`);
+        }
+        counts[trial.label]++;
+      }
+      if (counts.some((count) => count !== TRIALS_PER_BLOCK / SHAPES.length)) {
+        throw new Error(`Dataset block ${block} needs five trials of each shape.`);
+      }
+    }
+    return data.trials;
+  }
+
   function create() {
     const store = window.NPBrowserStore, decoder = window.NPBrowserDecoder;
     const confidence = window.NPBrowserConfidence;
-    let board = null;
+    let board = null, trainedSeed;
 
     function activeBoard(record) {
       if (!board) throw new Error("Reconnect NeuroPawn before starting a read.");
-      if (record && JSON.stringify(record.configuration) !== JSON.stringify(configuration(board))) {
-        throw new Error("This session uses different board settings. Reconnect with the original settings or start a new calibration.");
+      if (record && !matchingConfiguration(record.configuration, configuration(board))) {
+        throw new Error("This session uses different board settings. Reconnect with the original settings or start new training.");
       }
       return board;
     }
@@ -103,7 +163,7 @@
     async function load(id) {
       const record = await store.get(id);
       if (!record) {
-        const error = new Error("Session not found in this browser. Start a new calibration.");
+        const error = new Error("Session not found in this browser. Start new training.");
         error.status = 404;
         throw error;
       }
@@ -118,14 +178,40 @@
       return state(await store.put(record));
     }
 
+    async function finishTraining(record) {
+      const split = TRAINING_BLOCKS * TRIALS_PER_BLOCK;
+      const heldOut = decoder.validateHoldout(record.calibration.slice(0, split), record.calibration.slice(split));
+      const model = decoder.fit(record.calibration);
+      record.dataset = { format: DATASET_FORMAT, version: 1, heldOutBlocks: [TRAINING_BLOCKS + 1, DATASET_BLOCKS], heldOut };
+      const ready = await save(record);
+      trainedSeed = { id: record.id, model };
+      return ready;
+    }
+
     return {
       bridge: {
-        rest_seconds: REST_SECONDS, imagery_seconds: IMAGERY_SECONDS,
-        calibration_count: CALIBRATION_PER_SHAPE * SHAPES.length,
+        rest_seconds: REST_SECONDS, imagery_seconds: IMAGERY_SECONDS, cue_seconds: CUE_SECONDS,
+        calibration_count: TRIAL_COUNT,
       },
       setBoard(device) { board = device; },
       async getSession(id) { return state(await load(id)); },
       async downloadSession(id) { return store.download(await load(id)); },
+
+      async importDataset(file, player) {
+        const device = activeBoard();
+        const setup = configuration(device);
+        const trials = await readDataset(file, setup);
+        if (device !== board) throw new Error("NeuroPawn disconnected during import. Reconnect and try again.");
+        // Subtract paired resting log power to account for acquisition-scale differences.
+        const calibration = trials.map(({ label, block, baseline, eeg }) => ({
+          label, block, baseline, eeg,
+          features: decoder.features(eeg, setup.fs, baseline, { skipSeconds: 0, allInputs: true }),
+        }));
+        return finishTraining({
+          version: 1, id: crypto.randomUUID(), player, shapes: SHAPES, configuration: setup, createdAt: now(),
+          schedule: calibration.map(({ label }) => label), calibration, rounds: [],
+        });
+      },
 
       async sessionCapture(id, question, onPhase) {
         const record = await load(id);
@@ -137,18 +223,31 @@
           throw new Error("The current prompt or round changed. Refresh the session and try again.");
         }
 
+        const prompted = calibrating && record.rapidFire;
         const baseline = await device.capture(REST_SECONDS, { onStart: () => onPhase("rest") });
+        if (prompted) {
+          onPhase("cue");
+          await new Promise((resolve) => setTimeout(resolve, CUE_SECONDS * 1000));
+          if (device !== board) throw new Error("NeuroPawn disconnected during the read. Reconnect and try again.");
+        }
         const eeg = await device.capture(IMAGERY_SECONDS, { onStart: () => onPhase("go") });
         onPhase("decoding");
         if (device !== board) throw new Error("NeuroPawn disconnected during the read. Reconnect and try again.");
-        const features = decoder.features(eeg, device.fs);
+        const features = record.rapidFire || record.dataset
+          ? decoder.features(eeg, device.fs, baseline, { allInputs: true })
+          : decoder.features(eeg, device.fs);
         const trial = { baseline, eeg, features, capturedAt: now() };
         if (calibrating) {
-          record.calibration.push({ ...trial, label: record.schedule[completed] });
+          trial.label = record.schedule[completed];
+          if (prompted) trial.block = 1 + Math.floor(completed / TRIALS_PER_BLOCK);
+          record.calibration.push(trial);
+          if (prompted && record.calibration.length === record.schedule.length) return finishTraining(record);
         } else {
           const feedback = record.rounds.filter((round) => round.actual !== null);
-          const raw = decoder.fit(record.calibration, feedback).predict(features);
-          const prediction = confidence.predict(raw, record.calibration, feedback);
+          const model = trainedSeed?.id === id && !feedback.length
+            ? trainedSeed.model : decoder.fit(record.calibration, feedback);
+          const raw = model.predict(features);
+          const prediction = confidence.predict(raw, record.calibration, feedback, record.dataset?.heldOut);
           record.rounds.push({
             ...trial, id: crypto.randomUUID(), status: "review", actual: null,
             computer: randomBelow(SHAPES.length), prediction,
@@ -162,7 +261,7 @@
           return save({
             version: 1, id: crypto.randomUUID(), player: data.player, shapes: SHAPES,
             configuration: configuration(activeBoard()), schedule: schedule(),
-            calibration: [], rounds: [], createdAt: now(),
+            rapidFire: true, calibration: [], rounds: [], createdAt: now(),
           });
         }
 

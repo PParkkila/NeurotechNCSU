@@ -235,9 +235,9 @@ def _show(cue: str, message: str = "") -> None:
 
 def capture_move(
     board: NeuroPawn, *, seconds: float, skip: float, baseline_seconds: float = 2.0,
-    on_phase: Callable[[str], None] | None = None,
+    on_phase: Callable[[str], None] | None = None, before_go: Callable[[], None] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Capture paired rest and private imagery with no shape on screen."""
+    """Capture paired rest and imagery, optionally giving a cue after rest."""
     if not np.isfinite([seconds, skip, baseline_seconds]).all() or skip < 0:
         raise ValueError("Use finite durations and a nonnegative imagery delay.")
     baseline_samples = round(baseline_seconds * board.fs)
@@ -254,6 +254,8 @@ def capture_move(
     baseline = board.capture(baseline_samples / board.fs)
     if np.any(adc_rail_mask(baseline)):
         raise ADCRailError("A NeuroPawn EEG channel clipped during rest.")
+    if before_go is not None:
+        before_go()
     go = (lambda: _show("+", "GO")) if on_phase is None else (lambda: on_phase("go"))
     imagery = board.capture(duration, on_start=go)
     if on_phase is None:

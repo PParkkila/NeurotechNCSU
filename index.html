@@ -84,8 +84,8 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
 
   <main class="wrap">
     <section class="card" id="bridgeSetup" aria-labelledby="bridgeSetupTitle">
-      <h2 id="bridgeSetupTitle">Calibrate before you play</h2>
-      <p>Complete nine EEG reads before your first round against the computer.</p>
+      <h2 id="bridgeSetupTitle">Set up EEG before you play</h2>
+      <p>Train the decoder on 150 rapid-fire prompts before you play.</p>
       <p>Plug NeuroPawn into this computer, then select its USB serial port.</p>
       <button id="btnConnect" class="primary" disabled>Connect NeuroPawn</button>
       <p id="bridgeMessage" class="muted" role="status"></p>
@@ -112,14 +112,21 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
     </section>
 
     <details class="card hidden" id="setup" open>
-      <summary>Calibration setup</summary>
+      <summary>Decoder setup</summary>
       <p id="calibrationIntro"></p>
       <div class="row">
         <input id="newP1" aria-label="Player name" placeholder="Player name" maxlength="24">
         <button id="btnNew" class="primary">Start calibration</button>
         <button id="btnResume" class="hidden">Resume previous session</button>
-        <span id="setupError" class="err" role="alert"></span>
       </div>
+      <details id="datasetSetup" class="hidden">
+        <summary>Use a saved dataset</summary>
+        <div class="row">
+          <label>Dataset JSON <input id="datasetFile" type="file" accept=".json,application/json"></label>
+          <button id="btnImportDataset" disabled>Train from dataset</button>
+        </div>
+      </details>
+      <p id="setupError" class="err" role="alert"></p>
     </details>
 
     <section id="arena" class="hidden">
@@ -131,6 +138,7 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
         <div class="slot card" id="slot2"></div>
       </div>
       <div class="center">
+        <button id="btnPauseTraining" class="hidden" disabled>Pause after this trial</button>
         <button id="btnBattle" class="primary huge hidden" disabled>⚔ Battle</button>
         <button id="btnRematch" class="hidden">Rematch</button>
       </div>

@@ -22,6 +22,7 @@ BRIDGE_FILES = (
     "imagery/personalization.py",
     "imagery/recording.py",
     "imagery/rps.py",
+    "imagery/rps_dataset.py",
     "imagery/selection.html",
     "imagery/selection.py",
     "imagery/ssvep.py",

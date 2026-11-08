@@ -12,19 +12,38 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
+## Record a 150-trial dataset in the terminal
+
+Plug in the board, close any apps using its serial port, and run these commands from the project folder. Replace the example port and list only the inputs wired to your posterior electrodes, in the order you want saved. The example uses all eight. Keep the reference connected. Gain defaults to 4. Add `--imu` for the Knight Board IMU.
+
+```sh
+python -m imagery record-rps150 --port /dev/cu.usbserial1234 --inputs 1,2,3,4,5,6,7,8
+python -m imagery export-rps150
+```
+
+Press Enter to start each block of 15. Rest at `+`, read the shape name when it flashes, then picture that shape and hold still at **GO**. The next trial starts automatically. Each block shuffles five circles, five squares, and five triangles. Ten blocks give 50 of each shape and take about 21 minutes of capture time, plus breaks. Each trial saves two seconds of rest before the cue and four seconds of imagery starting one second after GO.
+
+The recorder saves completed blocks to `runs/rps-150.npz`. To continue an interrupted recording, rerun the same command with `--resume` and the original headset setup. `export-rps150` creates `runs/rps-150.json` for the browser. Both files contain labeled EEG and stay in the local `runs/` folder.
+
+1. Open Shape Battle in desktop Chrome. Under **Board settings**, enter the same ordered inputs and gain, then click **Connect NeuroPawn**. Keep the electrode placement and wearer the same.
+2. Under **Decoder setup**, expand **Use a saved dataset**, select `runs/rps-150.json`, and click **Train from dataset**.
+3. Start a brainwave read and privately imagine any shape at **GO**. Confirm the guess or select the shape you actually imagined before pressing **Battle**. The game uses confirmed rounds as feedback for later reads. Use **Resume previous session** in the same browser to keep that feedback.
+
+To use this workflow locally before deploying the updated page, run `python3 scripts/build_web.py` and then `python3 -m http.server 8000 --bind 127.0.0.1 --directory web-dist` from the project folder. Open `http://127.0.0.1:8000` in desktop Chrome and connect over Web Serial.
+
 ## Teach the decoder in Shape Battle
 
 Open the deployed HTTPS page in desktop Chrome on the laptop connected to the NeuroPawn. Close EXG Visualizer or other apps using the board. Click **Connect NeuroPawn**, select its USB serial port, and wait about 30 seconds for the board to configure. The default is gain 4 and inputs 1, 2, and 6. Open **Board settings** before connecting to match your wiring. Keep the game tab visible during each EEG read. [Chrome Web Serial](https://developer.chrome.com/docs/capabilities/serial)
 
-1. Select **Start calibration**. The browser presents nine shuffled prompts, three per shape. Read the prompt, start the EEG capture, and picture the shape at GO. Existing browser sessions keep the prompts they were created with.
-2. After calibration, privately choose a shape at GO. Review the EEG guess and its three **Shape comparisons**, then confirm or correct it before pressing **Battle**. The computer independently picks each shape with probability 1/3.
+1. Under **Decoder setup**, select **Start training**. The browser runs 150 trials automatically, with 50 prompts for each shape. Rest at `+`, read the shape name, then picture it at **GO**. The full sequence takes about 20 minutes. Use **Pause after this trial** and **Continue training** to take a break. The browser saves each completed trial so you can resume in the same browser after reconnecting.
+2. The browser scores the last 30 cued trials using a decoder trained on the first 120, then fits the starting model on all 150 using every selected input. In gameplay, privately choose a shape at **GO**. Review the EEG guess and its three **Shape comparisons**, then confirm or correct it before pressing **Battle**. The computer independently picks each shape with probability 1/3.
 3. The dashboard updates at confirmation. It scores the original guess against your confirmed label and shows actual and predicted counts per shape. Macro precision averages shapes the model has predicted. Macro recall averages shapes the player has confirmed. An unavailable value appears as a dash. The dashboard excludes calibration and discarded reads.
 
-The browser decoder trains only on the current session. It extracts Fourier band powers with Welch's method and projects them into up to five principal components. Three binary models compare circle vs square, triangle vs circle, and square vs triangle. Their log odds are combined into one distribution over shapes. From the first confirmation, simulated annealing searches for a bounded update on prior feedback and the calibration data. A feedback label has one-quarter the training weight of a calibration label. [Simulated annealing](https://doi.org/10.1126/SCIENCE.220.4598.671)
+The browser decoder trains on the chosen dataset or the current session's calibration. It extracts Fourier band powers with Welch's method and projects them into up to five principal components. In 150-trial sessions, it subtracts resting log power on each channel. That also cancels voltage scaling differences for imported datasets. Three binary models compare circle vs square, triangle vs circle, and square vs triangle. Their log odds are combined into one distribution over shapes. From the first confirmation, simulated annealing searches for a bounded update on prior feedback and the training data. A feedback label has one-quarter the training weight of an initial label. [Simulated annealing](https://doi.org/10.1126/SCIENCE.220.4598.671)
 
-The confidence estimate uses leave-one-out predictions from calibration and prior gameplay predictions made before the confirmed label was known. Temperature scaling and shrinkage toward equal probabilities limit confidence when evidence is sparse. [Temperature scaling](https://proceedings.mlr.press/v70/guo17a.html)
+The confidence estimate uses the two held-out blocks for 150-trial sessions or leave-one-out predictions for older browser sessions, alongside prior gameplay predictions made before the confirmed label was known. Temperature scaling and shrinkage toward equal probabilities limit confidence when evidence is sparse. [Temperature scaling](https://proceedings.mlr.press/v70/guo17a.html)
 
-The Vercel page records 2 seconds of pre-GO EEG and 5 seconds after GO per read. The decoder uses seconds 1–5 after GO. The browser saves one IndexedDB record per session, with board settings, raw EEG in microvolts, calibration labels, predictions, corrections, and computer moves. Use **Download session data** to save that session as JSON. Reload the same site in the same browser, reconnect with the same board settings, and select **Resume previous session**. Select **Start calibration** for a new wearer. [Knight Board data format](https://docs.neuropawn.tech/knight-board/data-format/) · [Knight Board command set](https://docs.neuropawn.tech/knight-board/command-set/)
+The Vercel page records two seconds of rest, displays each training cue for one second, then records five seconds after GO. The decoder uses seconds 1–5 after GO. The browser saves one IndexedDB record per session, with board settings, raw EEG, training labels, predictions, corrections, and computer moves. Use **Download session data** to save the labeled recording and feedback as JSON. Reload the same site in the same browser, reconnect with the same board settings, and select **Resume previous session**. Select **Start training** for a new wearer. [Knight Board data format](https://docs.neuropawn.tech/knight-board/data-format/) · [Knight Board command set](https://docs.neuropawn.tech/knight-board/command-set/)
 
 ### Local Python bridge
 

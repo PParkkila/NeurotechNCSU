@@ -52,14 +52,14 @@
     return (low + high) / 2;
   }
 
-  function predict(rawPrediction, calibration, priorConfirmed = []) {
+  function predict(rawPrediction, calibration, priorConfirmed = [], heldOut) {
     const scores = logScores(rawPrediction.raw_probabilities);
     if (!scores || !Number.isInteger(rawPrediction.move) || scores[rawPrediction.move] === undefined) {
       throw new Error("The model returned invalid shape probabilities.");
     }
-    const heldOut = window.NPBrowserDecoder.crossValidation(calibration);
     // Prompted reads use smaller weight than privately chosen gameplay reads.
-    const initial = evidence(heldOut, (record) => record.raw_probabilities, promptedWeight);
+    const initial = evidence(heldOut ?? window.NPBrowserDecoder.crossValidation(calibration),
+      (record) => record.raw_probabilities, promptedWeight);
     const later = evidence(priorConfirmed, (record) => record.prediction?.raw_probabilities, 1);
     const inverseTemperature = fit([...initial, ...later]);
     // Give the uniform prior two equivalent reads so the first few observations

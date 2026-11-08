@@ -54,20 +54,23 @@
     return sums.map((power) => Math.log(Math.max(power / count, 1e-12)));
   }
 
-  function spectra(epoch, fs, start) {
+  function spectra(epoch, fs, start, allInputs) {
     if (!Array.isArray(epoch) || !epoch.length || !epoch.every((channel) =>
       channel?.length === epoch[0]?.length && channel.length >= start + fs && channel.every?.(Number.isFinite))) {
       throw new Error("EEG must contain equal-length channels with enough finite samples.");
     }
-    return epoch.slice(0, 6).flatMap((channel) => logPowers(channel, fs, start));
+    const inputs = allInputs ? epoch : epoch.slice(0, 6);
+    return inputs.flatMap((channel) => logPowers(channel, fs, start));
   }
 
-  function features(imagery, fs, baseline) {
+  function features(imagery, fs, baseline, { skipSeconds = 1, allInputs = false } = {}) {
     if (!Number.isInteger(fs) || fs < 60) throw new Error("Invalid EEG sample rate.");
-    const power = spectra(imagery, fs, fs);
+    const start = skipSeconds * fs;
+    if (!Number.isInteger(start) || start < 0) throw new Error("Invalid EEG imagery delay.");
+    const power = spectra(imagery, fs, start, allInputs);
     if (!baseline) return power;
     if (baseline.length !== imagery.length) throw new Error("Rest and imagery need the same EEG channels.");
-    const rest = spectra(baseline, fs, 0);
+    const rest = spectra(baseline, fs, 0, allInputs);
     return power.map((value, i) => value - rest[i]);
   }
 
@@ -280,10 +283,17 @@
   }
 
   function fit(calibration, feedback = []) {
-    if (calibration.length !== 9 && calibration.length !== 20) {
+    if (![9, 20, 150].includes(calibration.length)) {
       throw new Error("Finish all calibration reads before playing.");
     }
     return train(calibration, feedback);
+  }
+
+  function validateHoldout(training, heldOut) {
+    const model = train(training);
+    return heldOut.map(({ label, features }) => ({
+      actual: label, raw_probabilities: model.predict(features).raw_probabilities,
+    }));
   }
 
   function crossValidation(calibration) {
@@ -294,5 +304,5 @@
     });
   }
 
-  window.NPBrowserDecoder = { features, fit, crossValidation };
+  window.NPBrowserDecoder = { features, fit, validateHoldout, crossValidation };
 })();
