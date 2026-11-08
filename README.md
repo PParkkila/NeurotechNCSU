@@ -88,7 +88,7 @@ $$
 X_{c,j}(k)=\sum_{n=0}^{N-1} w[n]\bigl(x_{c,j}[n]-\bar x_{c,j}\bigr)e^{-2\pi i kn/N}.
 $$
 
-Welch's method averages the windowed periodograms, which are proportional to $|X_{c,j}(k)|^2$, to estimate the power spectral density $S_c(k)$. At 1 Hz bin spacing, the four bands sum bins **4–7**, **8–12**, **13–19**, and **20–30 Hz**. For band $B$, define $P_{c,B}=\sum_{k\in B}S_c(k)$. The feature is the log-power difference $f_{c,B}=\log\max(P^{\mathrm{go}}_{c,B},10^{-12})-\log\max(P^{\mathrm{rest}}_{c,B},10^{-12})$. This measures the change from that trial's own rest period and gives four features per selected input. [`logPowers()` and `features()`](browser-decoder.js) [^welch]
+Welch's method averages the windowed periodograms, which are proportional to $|X_{c,j}(k)|^2$, to estimate the power spectral density $S_c(k)$. At 1 Hz bin spacing, the four bands sum bins **4–7**, **8–12**, **13–19**, and **20–30 Hz**. For band $B$, define $P_{c,B}=\sum_{k\in B}S_c(k)$. The feature is the log-power difference $`f_{c,B}=\log\bigl(\max(P_{c,B}^{\mathrm{go}},10^{-12})\bigr)-\log\bigl(\max(P_{c,B}^{\mathrm{rest}},10^{-12})\bigr)`$. This measures the change from that trial's own rest period and gives four features per selected input. [`logPowers()` and `features()`](browser-decoder.js) [^welch]
 
 #### 3. Standardize and project with PCA
 
