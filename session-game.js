@@ -103,6 +103,7 @@
       }).join("");
       return `<p>EEG predicts <b>${cap(round.predicted)}</b> (${percent(round.score)}).</p>` +
         `<p class="muted tiny">${estimate}</p>` +
+        (Number.isInteger(round.clippedInput) ? `<p class="muted tiny">Clipped input ${round.clippedInput} ignored for this read.</p>` : "") +
         (matches ? `<details class="tiny"><summary>Shape comparisons</summary><ul class="list">${matches}</ul></details>` : "");
     }
 

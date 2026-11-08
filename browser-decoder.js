@@ -54,38 +54,41 @@
     return sums.map((power) => Math.log(Math.max(power / count, 1e-12)));
   }
 
-  function spectra(epoch, fs, start, allInputs) {
+  function spectra(epoch, fs, start, allInputs, ignoredChannel) {
     if (!Array.isArray(epoch) || !epoch.length || !epoch.every((channel) =>
       channel?.length === epoch[0]?.length && channel.length >= start + fs && channel.every?.(Number.isFinite))) {
       throw new Error("EEG must contain equal-length channels with enough finite samples.");
     }
     const inputs = allInputs ? epoch : epoch.slice(0, 6);
-    return inputs.flatMap((channel) => logPowers(channel, fs, start));
+    return inputs.flatMap((channel, index) =>
+      index === ignoredChannel ? bands.map(() => null) : logPowers(channel, fs, start));
   }
 
-  function features(imagery, fs, baseline, { skipSeconds = 1, allInputs = false } = {}) {
+  function features(imagery, fs, baseline, { skipSeconds = 1, allInputs = false, ignoredChannel = -1 } = {}) {
     if (!Number.isInteger(fs) || fs < 60) throw new Error("Invalid EEG sample rate.");
     const start = skipSeconds * fs;
     if (!Number.isInteger(start) || start < 0) throw new Error("Invalid EEG imagery delay.");
-    const power = spectra(imagery, fs, start, allInputs);
+    const power = spectra(imagery, fs, start, allInputs, ignoredChannel);
     if (!baseline) return power;
     if (baseline.length !== imagery.length) throw new Error("Rest and imagery need the same EEG channels.");
-    const rest = spectra(baseline, fs, 0, allInputs);
-    return power.map((value, i) => value - rest[i]);
+    const rest = spectra(baseline, fs, 0, allInputs, ignoredChannel);
+    return power.map((value, i) => value === null ? null : value - rest[i]);
   }
 
   const dot = (a, b) => a.reduce((sum, value, i) => sum + value * b[i], 0);
 
   function projector(rows) {
     const dimensions = rows[0].length;
-    const axes = Array.from(rows[0], (_, column) => rows.map((row) => row[column]));
-    const means = axes.map((axis) => axis.reduce((a, b) => a + b, 0) / rows.length);
+    const axes = Array.from(rows[0], (_, column) => rows.map((row) => row[column]).filter(Number.isFinite));
+    const means = axes.map((axis) => axis.length ? axis.reduce((a, b) => a + b, 0) / axis.length : null);
     const scales = axes.map((axis, j) => {
       const variance = axis.reduce((sum, value) => sum + (value - means[j]) ** 2, 0) / rows.length;
       const noise = rows.length * Number.EPSILON;
       return variance <= noise * variance + (noise * means[j]) ** 2 ? 1 : Math.sqrt(variance);
     });
-    const scaled = axes.map((axis, j) => axis.map((value) => (value - means[j]) / scales[j]));
+    // Missing features use the training mean, or contribute nothing if the input was always missing.
+    const standardize = (value, j) => value === null || means[j] === null ? 0 : (value - means[j]) / scales[j];
+    const scaled = axes.map((_, j) => rows.map((row) => standardize(row[j], j)));
     const cov = scaled.map((axis) => scaled.map((other) => dot(axis, other) / rows.length));
     const basis = axes.map((_, i) => axes.map((_, j) => Number(i === j)));
 
@@ -119,7 +122,7 @@
     const components = axes.map((_, i) => i).sort((a, b) => cov[b][b] - cov[a][a])
       .slice(0, 5).map((axis) => basis.map((row) => row[axis]));
     return (row) => {
-      const scaledRow = row.map((value, i) => (value - means[i]) / scales[i]);
+      const scaledRow = row.map(standardize);
       const scores = components.map((axis) => dot(axis, scaledRow));
       const norm = Math.hypot(...scores);
       const scale = norm > featureRadius ? featureRadius / norm : 1;
@@ -235,7 +238,8 @@
 
   function train(calibration, feedback = []) {
     const dimensions = calibration[0]?.features?.length;
-    const validRow = (row) => row?.length === dimensions && row.every?.(Number.isFinite);
+    const validRow = (row) => row?.length === dimensions && row.some?.(Number.isFinite) &&
+      row.every((value) => value === null || Number.isFinite(value));
     const validLabel = (label) => Number.isInteger(label) && label >= 0 && label < classCount;
     if (!dimensions || new Set(calibration.map((item) => item.label)).size !== classCount ||
         !calibration.every((item) => validLabel(item.label) && validRow(item.features)) ||

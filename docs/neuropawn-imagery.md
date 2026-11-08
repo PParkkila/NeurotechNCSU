@@ -45,6 +45,8 @@ The confidence estimate uses the two held-out blocks for 150-trial sessions or l
 
 The Vercel page records two seconds of rest, displays each training cue for one second, then records five seconds after GO. The decoder uses seconds 1–5 after GO. The browser saves one IndexedDB record per session, with board settings, raw EEG, training labels, predictions, corrections, and computer moves. Use **Download session data** to save the labeled recording and feedback as JSON. Reload the same site in the same browser, reconnect with the same board settings, and select **Resume previous session**. Select **Start training** for a new wearer. [Knight Board data format](https://docs.neuropawn.tech/knight-board/data-format/) · [Knight Board command set](https://docs.neuropawn.tech/knight-board/command-set/)
 
+If one input clips during rest or imagery, the browser records which input clipped and leaves it out of the decoder for that whole trial. A second clipped input in the same trial triggers a retry. A single-input setup also requires a retry if that input clips.
+
 ### Local Python bridge
 
 For the local bridge, open **Use the local Python bridge** on the hosted page and follow its download instructions, or run the command below from the project folder on the laptop connected to NeuroPawn.

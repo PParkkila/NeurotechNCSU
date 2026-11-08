@@ -66,6 +66,7 @@
       pairwise: current.prediction.pairwise,
       confidenceReads: current.prediction.confidence_calibration_reads,
       confidenceFeedback: current.prediction.confidence_feedback_reads,
+      clippedInput: current.clippedInput ?? null,
       confirmed: SHAPES[current.actual] ?? null,
       computer: phase === "result" ? SHAPES[current.computer] : null,
     } : null;
@@ -224,19 +225,23 @@
         }
 
         const prompted = calibrating && record.rapidFire;
-        const baseline = await device.capture(REST_SECONDS, { onStart: () => onPhase("rest") });
+        const rest = await device.capture(REST_SECONDS, { onStart: () => onPhase("rest") });
         if (prompted) {
           onPhase("cue");
           await new Promise((resolve) => setTimeout(resolve, CUE_SECONDS * 1000));
           if (device !== board) throw new Error("NeuroPawn disconnected during the read. Reconnect and try again.");
         }
-        const eeg = await device.capture(IMAGERY_SECONDS, { onStart: () => onPhase("go") });
+        const baseline = rest.samples;
+        const { samples: eeg, clippedInput } = await device.capture(IMAGERY_SECONDS, {
+          onStart: () => onPhase("go"), clippedInput: rest.clippedInput,
+        });
         onPhase("decoding");
         if (device !== board) throw new Error("NeuroPawn disconnected during the read. Reconnect and try again.");
-        const features = record.rapidFire || record.dataset
-          ? decoder.features(eeg, device.fs, baseline, { allInputs: true })
-          : decoder.features(eeg, device.fs);
+        const allInputs = Boolean(record.rapidFire || record.dataset);
+        const ignoredChannel = device.inputs.indexOf(clippedInput);
+        const features = decoder.features(eeg, device.fs, allInputs ? baseline : undefined, { allInputs, ignoredChannel });
         const trial = { baseline, eeg, features, capturedAt: now() };
+        if (clippedInput !== null) trial.clippedInput = clippedInput;
         if (calibrating) {
           trial.label = record.schedule[completed];
           if (prompted) trial.block = 1 + Math.floor(completed / TRIALS_PER_BLOCK);

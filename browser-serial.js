@@ -186,21 +186,28 @@
       for (const [row, channel] of this.inputs.entries()) {
         const count = view.getInt16(offset + 2 * channel);
         if (count === 32767 || count === -32768) {
-          this.finishRead(new Error(`EEG clipped on input ${channel}. Check the electrode contacts and ear clip, then retry.`));
-          return;
+          if (this.inputs.length === 1) {
+            this.finishRead(new Error(`EEG clipped on input ${channel}. Check the electrode contact and retry.`));
+            return;
+          }
+          if (read.clippedInput !== null && read.clippedInput !== channel) {
+            this.finishRead(new Error(`EEG clipped on inputs ${read.clippedInput} and ${channel}. Check the electrode contacts and retry.`));
+            return;
+          }
+          read.clippedInput = channel;
         }
         read.samples[row][read.length] = count * this.scale;
         if (read.length === 0) read.first[row] = count;
         else if (count !== read.first[row]) read.varied[row] = true;
       }
       if (++read.length === read.samples[0].length) {
-        const flat = read.varied.indexOf(false);
+        const flat = read.varied.findIndex((varied, row) => !varied && this.inputs[row] !== read.clippedInput);
         this.finishRead(flat === -1 ? null : new Error(
           `No changing signal on input ${this.inputs[flat]}. Check its electrode and retry the read.`));
       }
     }
 
-    capture(seconds, { onStart } = {}) {
+    capture(seconds, { onStart, clippedInput = null } = {}) {
       const sampleCount = Math.round(this.fs * seconds);
       if (!Number.isFinite(seconds) || sampleCount < 1 || seconds > 30) {
         return Promise.reject(new Error("Use a positive EEG read duration of at most 30 seconds."));
@@ -210,7 +217,7 @@
       if (document.hidden) return Promise.reject(new Error("Keep this tab visible during EEG reads."));
       return new Promise((resolve, reject) => {
         this.read = {
-          resolve, reject, length: 0, counter: null,
+          resolve, reject, length: 0, counter: null, clippedInput,
           samples: this.inputs.map(() => new Float32Array(sampleCount)),
           first: this.inputs.map(() => 0), varied: this.inputs.map(() => sampleCount === 1),
           timer: setTimeout(() => this.finishRead(new Error("Timed out waiting for EEG samples. Recheck the USB connection.")),
@@ -226,7 +233,7 @@
       this.read = null;
       clearTimeout(read.timer);
       if (error) read.reject(error);
-      else read.resolve(read.samples);
+      else read.resolve({ samples: read.samples, clippedInput: read.clippedInput });
     }
 
     async close(error = new Error("The NeuroPawn was disconnected.")) {
