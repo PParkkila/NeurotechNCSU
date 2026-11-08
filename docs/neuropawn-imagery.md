@@ -14,13 +14,7 @@ python -m pip install -r requirements.txt
 
 ## Teach the decoder in Shape Battle
 
-On the computer connected to NeuroPawn, start the local headset bridge.
-
-```sh
-python -m imagery web --port /dev/cu.usbserial1234
-```
-
-Open `http://127.0.0.1:8765` on that computer. The default hardware setup uses gain 4 and board inputs 1, 2, and 6. Pass `--inputs` and `--gain` to match your wiring.
+Open the deployed HTTPS page in desktop Chrome on the laptop connected to the NeuroPawn. Close EXG Visualizer or other apps using the board. Click **Connect NeuroPawn**, select its USB serial port, and wait about 30 seconds for the board to configure. The default is gain 4 and inputs 1, 2, and 6. Open **Board settings** before connecting to match your wiring. Keep the game tab visible during each EEG read. [Chrome Web Serial](https://developer.chrome.com/docs/capabilities/serial)
 
 1. Select **Start calibration**. The game presents 20 shuffled shape prompts with counts of 7, 7, and 6. Read the prompt, start the EEG capture, and picture the prompted shape at GO.
 2. After calibration, privately choose a shape at GO. Confirm or correct the EEG guess before pressing **Battle**. The confirmed shape teaches the decoder and is used against the computer's hidden move. The computer independently picks each shape with probability 1/3.
@@ -28,7 +22,17 @@ Open `http://127.0.0.1:8765` on that computer. The default hardware setup uses g
 
 The initial web model trains only on that session's 20 calibration trials. The game scores the prediction made before its label was known and uses the existing slow feedback policy for subsequent rounds. Calibration trials and discarded reads are excluded from the dashboard.
 
-Each session saves a local `.npz` file in `runs/web-sessions/` by default. The archive contains 2 seconds of pre-GO EEG and all 5 seconds after GO per saved read, plus board setup, calibration labels, predictions, corrections, and computer moves. The decoder uses seconds 1–5 after GO. After a reload or bridge restart, select **Resume previous session** to continue with the same board settings. Select **Start calibration** for a new wearer. Use `--sessions` to choose a different local directory.
+The Vercel page records 2 seconds of pre-GO EEG and 5 seconds after GO per read. The decoder uses seconds 1–5 after GO. The browser saves one IndexedDB record per session, with board settings, raw EEG in microvolts, calibration labels, predictions, corrections, and computer moves. Use **Download session data** to save that session as JSON. Reload the same site in the same browser, reconnect with the same board settings, and select **Resume previous session**. Select **Start calibration** for a new wearer. [Knight Board data format](https://docs.neuropawn.tech/knight-board/data-format/) · [Knight Board command set](https://docs.neuropawn.tech/knight-board/command-set/)
+
+### Local Python bridge
+
+For the local bridge, open **Use the local Python bridge** on the hosted page and follow its download instructions, or run the command below from the project folder on the laptop connected to NeuroPawn.
+
+```sh
+python -m imagery web --port /dev/cu.usbserial1234
+```
+
+Open the local address printed by the bridge. Pass `--inputs` and `--gain` to match the board wiring. The Python bridge saves a local `.npz` per session under `runs/web-sessions/` by default. Use `--sessions` to select a different directory.
 
 ```python
 import json
@@ -40,7 +44,7 @@ with np.load("runs/web-sessions/SESSION_ID.npz", allow_pickle=False) as session:
     imagery = session["eeg"]
 ```
 
-The hosted page offers a local bridge download with macOS and Windows setup instructions. Run the bridge on the laptop connected to NeuroPawn and open the local address it prints. For Vercel Drop, run `python3 scripts/build_web.py` from the project folder and upload `web-dist/`.
+For Vercel Drop, run `python3 scripts/build_web.py` from the project folder and upload `web-dist/`.
 
 ## Play and teach a personal decoder
 

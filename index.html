@@ -72,7 +72,10 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
         <h1>NeuroPawn <span>Shape Battle</span></h1>
         <div class="muted" id="eventName"></div>
       </div>
-      <span id="modePill" class="pill demo">EEG calibration required</span>
+      <div class="row">
+        <span id="modePill" class="pill demo">EEG calibration required</span>
+        <button id="btnDisconnect" class="hidden">Disconnect</button>
+      </div>
     </div>
   </header>
 
@@ -80,19 +83,29 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
     <section class="card" id="bridgeSetup" aria-labelledby="bridgeSetupTitle">
       <h2 id="bridgeSetupTitle">Calibrate before you play</h2>
       <p>Complete 20 EEG reads before your first round against the computer.</p>
-      <div id="bridgeDownload">
-        <p><strong><a href="neuropawn-local.zip" download>Download the local EEG bridge</a></strong> on the laptop with the NeuroPawn connected. Extract it and follow the README for macOS or Windows.</p>
-        <p>Wait for the bridge terminal to print the local game address before opening calibration.</p>
-      </div>
-      <div id="bridgeCommand" class="hidden">
-        <p>In the project folder on the laptop with the NeuroPawn connected, run the bridge with your serial port.</p>
-        <p><code>python -m imagery web --port YOUR_SERIAL_PORT</code></p>
-      </div>
-      <div class="row">
-        <a id="openLocalCalibration" href="http://127.0.0.1:8765/">Open local calibration</a>
-        <button id="bridgeRetry" class="hidden">Check bridge again</button>
-      </div>
+      <p>Plug NeuroPawn into this computer, then select its USB serial port.</p>
+      <button id="btnConnect" class="primary" disabled>Connect NeuroPawn</button>
       <p id="bridgeMessage" class="muted" role="status"></p>
+      <details>
+        <summary>Board settings</summary>
+        <div class="row">
+          <label>Inputs <input id="boardInputs" value="1,2,6" size="9"></label>
+          <label>Gain
+            <select id="boardGain">
+              <option>1</option><option>2</option><option>3</option>
+              <option selected>4</option><option>6</option><option>8</option><option>12</option>
+            </select>
+          </label>
+        </div>
+      </details>
+      <details id="bridgeFallback">
+        <summary>Use the local Python bridge</summary>
+        <p id="bridgeDownload"><a href="neuropawn-local.zip" download>Download the local EEG bridge</a> and follow its README.</p>
+        <p id="bridgeCommand" class="hidden"><code>python -m imagery web --port YOUR_SERIAL_PORT</code></p>
+        <p>After the bridge prints the local game address, open it in this browser.
+          <a id="openLocalCalibration" href="http://127.0.0.1:8765/">Open local calibration</a>
+        </p>
+      </details>
     </section>
 
     <details class="card hidden" id="setup" open>
@@ -125,6 +138,12 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
       <h2 id="sessionMetricsTitle">EEG prediction metrics</h2>
       <div id="sessionMetricsBody"></div>
     </section>
+    <section id="sessionFile" class="card hidden">
+      <h2>Session data</h2>
+      <p>EEG and feedback are saved in this browser. Download a JSON copy to keep or share.</p>
+      <button id="btnDownloadSession">Download session data</button>
+      <span id="sessionFileError" class="err" role="alert"></span>
+    </section>
   </main>
 
   <footer class="wrap muted">NeuroTech NCSU · NeuroPawn · [FILL IN: team / links]</footer>
@@ -133,6 +152,10 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
   <script src="shapes.js"></script>
   <script src="battle.js"></script>
   <script src="input.js"></script>
+  <script src="browser-serial.js"></script>
+  <script src="browser-decoder.js"></script>
+  <script src="browser-store.js"></script>
+  <script src="browser-game.js"></script>
   <script src="session-game.js"></script>
   <script src="app.js"></script>
 </body>

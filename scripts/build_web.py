@@ -7,7 +7,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "web-dist"
-WEB_FILES = ("index.html", "config.js", "shapes.js", "battle.js", "input.js", "session-game.js", "app.js")
+WEB_FILES = (
+    "index.html", "config.js", "shapes.js", "battle.js", "input.js", "session-game.js", "app.js",
+    "browser-serial.js", "browser-decoder.js", "browser-store.js", "browser-game.js",
+)
 BRIDGE_FILES = (
     *WEB_FILES,
     "LICENSE",

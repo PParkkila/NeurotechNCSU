@@ -38,15 +38,17 @@
       ` fill="var(--muted)" font-size="10">${grid}${series}${ticks}</svg>`;
   }
 
-  function start(bridge) {
-    const EEG = window.NPInput, S = window.NPShapes, B = window.NPBattle;
-    const storageKey = "np_eeg_calibration_session";
+  function start(bridge, EEG) {
+    const S = window.NPShapes, B = window.NPBattle;
+    const browser = typeof EEG.downloadSession === "function";
+    const storageKey = browser ? "np_webserial_calibration_session" : "np_eeg_calibration_session";
     const setup = $("setup"), newPlayer = $("newP1"), newGame = $("btnNew"), resume = $("btnResume");
     let state = null, pick = null, busy = null, capturePhase = "starting", error = "", setupError = "";
-    let savedSession;
+    const download = $("btnDownloadSession");
+    let savedSession, exporting = false;
     try { savedSession = localStorage.getItem(storageKey); } catch { /* storage unavailable */ }
 
-    $("modePill").textContent = "● EEG bridge connected (local game)";
+    $("modePill").textContent = browser ? "● NeuroPawn connected over USB" : "● EEG bridge connected (local game)";
     $("modePill").className = "pill live";
     $("btnRematch").textContent = "Next round";
 
@@ -54,7 +56,7 @@
       if (!next || typeof next.id !== "string" || !next.calibration || !next.metrics ||
           !["calibration", "ready", "review", "confirmed", "result"].includes(next.phase) ||
           (["review", "confirmed", "result"].includes(next.phase) && !next.round?.id)) {
-        throw new Error("The local EEG bridge returned an invalid game state.");
+        throw new Error("The game returned an invalid session state.");
       }
       if (next.phase !== "review") pick = null;
       else if (state?.round?.id !== next.round.id || state?.phase !== "review") pick = next.round.predicted;
@@ -136,6 +138,8 @@
       resume.disabled = !!busy;
       $("setupError").textContent = setupError;
       $("arena").classList.toggle("hidden", !state);
+      $("sessionFile").classList.toggle("hidden", !browser || !state);
+      download.disabled = !!busy || exporting;
       renderMetrics();
       if (!state) return;
 
@@ -238,6 +242,20 @@
       EEG.sessionAction("session", { player: newPlayer.value.trim() || "Player" }));
     resume.onclick = () => {
       if (savedSession) return run("resume", () => EEG.getSession(savedSession));
+    };
+    download.onclick = async () => {
+      if (!browser || !state || busy || exporting) return;
+      exporting = download.disabled = true;
+      const message = $("sessionFileError");
+      message.textContent = "";
+      try {
+        await EEG.downloadSession(state.id);
+      } catch (err) {
+        message.textContent = err.message;
+      } finally {
+        exporting = false;
+        download.disabled = !!busy;
+      }
     };
     $("stage").addEventListener("click", (event) => {
       const button = event.target.closest("[data-act], [data-pick]");
