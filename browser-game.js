@@ -1,7 +1,7 @@
 // The hosted game uses the same view as the Python bridge. EEG stays on this device.
 (function () {
   const SHAPES = window.NPShapes.LIST;
-  const CALIBRATION_COUNT = 20;
+  const CALIBRATION_PER_SHAPE = 3;
   const REST_SECONDS = 2;
   const IMAGERY_SECONDS = 5;
   const byte = new Uint8Array(1);
@@ -14,8 +14,7 @@
   }
 
   function schedule() {
-    const prompts = SHAPES.flatMap((_, index) => Array(7).fill(index));
-    prompts.splice(7 * randomBelow(SHAPES.length), 1);
+    const prompts = SHAPES.flatMap((_, index) => Array(CALIBRATION_PER_SHAPE).fill(index));
     for (let i = prompts.length - 1; i > 0; i--) {
       const j = randomBelow(i + 1);
       [prompts[i], prompts[j]] = [prompts[j], prompts[i]];
@@ -23,17 +22,24 @@
     return prompts;
   }
 
-  function metrics(confusion, total) {
-    let correct = 0, recall = 0, precision = 0;
-    for (const [i, row] of confusion.entries()) {
-      const hits = row[i];
-      correct += hits;
-      recall += hits / (row.reduce((sum, count) => sum + count, 0) || 1);
-      precision += hits / (confusion.reduce((sum, other) => sum + other[i], 0) || 1);
+  function shapeCounts(confusion) {
+    return confusion.map((row, index) => {
+      const actual = row.reduce((sum, count) => sum + count, 0);
+      const predicted = confusion.reduce((sum, other) => sum + other[index], 0);
+      return { shape: SHAPES[index], hits: row[index], actual, predicted };
+    });
+  }
+
+  function metrics(per_shape, total) {
+    const correct = per_shape.reduce((sum, shape) => sum + shape.hits, 0);
+    function macro(field) {
+      const supported = per_shape.filter((shape) => shape[field] > 0);
+      return supported.length
+        ? supported.reduce((sum, shape) => sum + shape.hits / shape[field], 0) / supported.length : null;
     }
     return {
       total, correct, accuracy: total ? correct / total : null,
-      macro_recall: recall / SHAPES.length, macro_precision: precision / SHAPES.length,
+      macro_recall: macro("actual"), macro_precision: macro("predicted"),
     };
   }
 
@@ -41,31 +47,39 @@
     const completed = record.calibration.length;
     const last = record.rounds.at(-1);
     const current = last?.status === "discarded" ? null : last;
-    const phase = completed < CALIBRATION_COUNT ? "calibration" : current?.status ?? "ready";
+    const total = record.schedule.length;
+    const phase = completed < total ? "calibration" : current?.status ?? "ready";
     const round = current ? {
       id: current.id,
       predicted: SHAPES[current.prediction.move],
       score: current.prediction.confidence,
       model: current.prediction.using_player ? "player" : "seed",
       examples: current.prediction.examples,
+      pairwise: current.prediction.pairwise,
+      confidenceReads: current.prediction.confidence_calibration_reads,
+      confidenceFeedback: current.prediction.confidence_feedback_reads,
       confirmed: SHAPES[current.actual] ?? null,
       computer: phase === "result" ? SHAPES[current.computer] : null,
     } : null;
 
     const confusion = SHAPES.map(() => Array(SHAPES.length).fill(0));
     const history = [], results = [];
+    let lastConfirmed = null;
     for (const item of record.rounds) {
       if (item.actual === null) continue;
       confusion[item.actual][item.prediction.move]++;
-      history.push({ round: history.length + 1, ...metrics(confusion, history.length + 1) });
+      history.push({ round: history.length + 1, ...metrics(shapeCounts(confusion), history.length + 1) });
+      lastConfirmed = { predicted: SHAPES[item.prediction.move], actual: SHAPES[item.actual] };
       if (item.status === "result") {
         results.push({ player: SHAPES[item.actual], computer: SHAPES[item.computer] });
       }
     }
+    const perShape = shapeCounts(confusion);
     return {
       id: record.id, player: record.player, phase, round, results,
-      calibration: { completed, total: CALIBRATION_COUNT, prompt: SHAPES[record.schedule[completed]] ?? null },
-      metrics: { ...metrics(confusion, history.length), history },
+      calibration: { completed, total, prompt: SHAPES[record.schedule[completed]] ?? null },
+      metrics: { ...metrics(perShape, history.length), history,
+        per_shape: perShape, last_confirmed: lastConfirmed },
     };
   }
 
@@ -75,6 +89,7 @@
 
   function create() {
     const store = window.NPBrowserStore, decoder = window.NPBrowserDecoder;
+    const confidence = window.NPBrowserConfidence;
     let board = null;
 
     function activeBoard(record) {
@@ -104,7 +119,10 @@
     }
 
     return {
-      bridge: { rest_seconds: REST_SECONDS, imagery_seconds: IMAGERY_SECONDS },
+      bridge: {
+        rest_seconds: REST_SECONDS, imagery_seconds: IMAGERY_SECONDS,
+        calibration_count: CALIBRATION_PER_SHAPE * SHAPES.length,
+      },
       setBoard(device) { board = device; },
       async getSession(id) { return state(await load(id)); },
       async downloadSession(id) { return store.download(await load(id)); },
@@ -114,7 +132,7 @@
         const device = activeBoard(record);
         const completed = record.calibration.length;
         const last = record.rounds.at(-1);
-        const calibrating = completed < CALIBRATION_COUNT;
+        const calibrating = completed < record.schedule.length;
         if (calibrating ? question !== completed : question !== null || ["review", "confirmed"].includes(last?.status)) {
           throw new Error("The current prompt or round changed. Refresh the session and try again.");
         }
@@ -129,7 +147,8 @@
           record.calibration.push({ ...trial, label: record.schedule[completed] });
         } else {
           const feedback = record.rounds.filter((round) => round.actual !== null);
-          const prediction = decoder.fit(record.calibration, feedback).predict(features);
+          const raw = decoder.fit(record.calibration, feedback).predict(features);
+          const prediction = confidence.predict(raw, record.calibration, feedback);
           record.rounds.push({
             ...trial, id: crypto.randomUUID(), status: "review", actual: null,
             computer: randomBelow(SHAPES.length), prediction,

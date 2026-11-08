@@ -16,11 +16,13 @@ python -m pip install -r requirements.txt
 
 Open the deployed HTTPS page in desktop Chrome on the laptop connected to the NeuroPawn. Close EXG Visualizer or other apps using the board. Click **Connect NeuroPawn**, select its USB serial port, and wait about 30 seconds for the board to configure. The default is gain 4 and inputs 1, 2, and 6. Open **Board settings** before connecting to match your wiring. Keep the game tab visible during each EEG read. [Chrome Web Serial](https://developer.chrome.com/docs/capabilities/serial)
 
-1. Select **Start calibration**. The game presents 20 shuffled shape prompts with counts of 7, 7, and 6. Read the prompt, start the EEG capture, and picture the prompted shape at GO.
-2. After calibration, privately choose a shape at GO. Confirm or correct the EEG guess before pressing **Battle**. The confirmed shape teaches the decoder and is used against the computer's hidden move. The computer independently picks each shape with probability 1/3.
-3. The dashboard updates after each confirmed gameplay read. Accuracy compares the original prediction with the confirmed shape. Precision and recall are macro averages over the three shapes. A class with a zero denominator contributes zero.
+1. Select **Start calibration**. The browser presents nine shuffled prompts, three per shape. Read the prompt, start the EEG capture, and picture the shape at GO. Existing browser sessions keep the prompts they were created with.
+2. After calibration, privately choose a shape at GO. Review the EEG guess and its three **Shape comparisons**, then confirm or correct it before pressing **Battle**. The computer independently picks each shape with probability 1/3.
+3. The dashboard updates at confirmation. It scores the original guess against your confirmed label and shows actual and predicted counts per shape. Macro precision averages shapes the model has predicted. Macro recall averages shapes the player has confirmed. An unavailable value appears as a dash. The dashboard excludes calibration and discarded reads.
 
-The initial web model trains only on that session's 20 calibration trials. The game scores the prediction made before its label was known and uses the existing slow feedback policy for subsequent rounds. Calibration trials and discarded reads are excluded from the dashboard.
+The browser decoder trains only on the current session. It extracts Fourier band powers with Welch's method and projects them into up to five principal components. Three binary models compare circle vs square, triangle vs circle, and square vs triangle. Their log odds are combined into one distribution over shapes. From the first confirmation, simulated annealing searches for a bounded update on prior feedback and the calibration data. A feedback label has one-quarter the training weight of a calibration label. [Simulated annealing](https://doi.org/10.1126/SCIENCE.220.4598.671)
+
+The confidence estimate uses leave-one-out predictions from calibration and prior gameplay predictions made before the confirmed label was known. Temperature scaling and shrinkage toward equal probabilities limit confidence when evidence is sparse. [Temperature scaling](https://proceedings.mlr.press/v70/guo17a.html)
 
 The Vercel page records 2 seconds of pre-GO EEG and 5 seconds after GO per read. The decoder uses seconds 1–5 after GO. The browser saves one IndexedDB record per session, with board settings, raw EEG in microvolts, calibration labels, predictions, corrections, and computer moves. Use **Download session data** to save that session as JSON. Reload the same site in the same browser, reconnect with the same board settings, and select **Resume previous session**. Select **Start calibration** for a new wearer. [Knight Board data format](https://docs.neuropawn.tech/knight-board/data-format/) · [Knight Board command set](https://docs.neuropawn.tech/knight-board/command-set/)
 
@@ -32,7 +34,7 @@ For the local bridge, open **Use the local Python bridge** on the hosted page an
 python -m imagery web --port /dev/cu.usbserial1234
 ```
 
-Open the local address printed by the bridge. Pass `--inputs` and `--gain` to match the board wiring. The Python bridge saves a local `.npz` per session under `runs/web-sessions/` by default. Use `--sessions` to select a different directory.
+Open the local address printed by the bridge. Pass `--inputs` and `--gain` to match the board wiring. The Python bridge uses its original 20-read decoder and saves a local `.npz` per session under `runs/web-sessions/` by default. Use `--sessions` to select a different directory.
 
 ```python
 import json

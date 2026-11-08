@@ -1,11 +1,14 @@
-// Browser equivalent of the Python game's Welch/PCA/logistic decoder.
+// Welch/PCA features with three pairwise classifiers and bounded feedback learning.
 (function () {
   const bands = [[4, 8], [8, 13], [13, 20], [20, 31]];
   const classCount = 3;
-  const calibrationCount = 20;
-  const policyVersion = 2;
-  const blendPrior = 48;
-  const blendStep = 0.05;
+  // Indices follow NPShapes.LIST: circle, triangle, square.
+  const pairs = [[0, 2], [1, 0], [2, 1]];
+  const policyVersion = 3;
+  const feedbackWeight = 0.25;
+  const featureRadius = 3;
+  // The appended bias adds one to the squared row norm.
+  const coefficientStep = 0.12 / Math.hypot(featureRadius, 1);
   const kernels = new Map();
 
   function welchKernel(fs) {
@@ -114,121 +117,182 @@
       .slice(0, 5).map((axis) => basis.map((row) => row[axis]));
     return (row) => {
       const scaledRow = row.map((value, i) => (value - means[i]) / scales[i]);
-      return [...components.map((axis) => dot(axis, scaledRow)), 1];
+      const scores = components.map((axis) => dot(axis, scaledRow));
+      const norm = Math.hypot(...scores);
+      const scale = norm > featureRadius ? featureRadius / norm : 1;
+      return [...scores.map((value) => value * scale), 1];
     };
   }
 
-  function probabilities(coefficients, row, output) {
-    for (let c = 0; c < classCount; c++) {
-      let value = 0;
-      for (let j = 0; j < row.length; j++) value += coefficients[c * row.length + j] * row[j];
-      output[c] = value;
+  const sigmoid = (value) => 1 / (1 + Math.exp(-value));
+  const penalty = (index, width) => index === width - 1 ? 0.25 : 1;
+
+  function loss(weights, rows) {
+    let value = 0;
+    for (const { row, target, weight } of rows) {
+      const margin = dot(weights, row);
+      // Stable logistic loss for either binary label.
+      const wrongMargin = target ? -margin : margin;
+      value += weight * (Math.max(wrongMargin, 0) + Math.log1p(Math.exp(-Math.abs(wrongMargin))));
     }
-    const max = Math.max(...output);
-    let total = 0;
-    for (let c = 0; c < classCount; c++) {
-      output[c] = Math.exp(output[c] - max);
-      total += output[c];
-    }
-    for (let c = 0; c < classCount; c++) output[c] /= total;
-    return output;
+    return value + weights.reduce((sum, weight, i) => sum + 0.5 * penalty(i, weights.length) * weight ** 2, 0);
   }
 
-  function classifier(rows, labels, weights) {
-    const width = rows[0].length;
-    const size = classCount * width;
-    const gradient = new Float64Array(size);
-    const point = new Float64Array(size);
-    const solution = new Float64Array(size);
-    const scores = new Float64Array(classCount);
-    // A Hessian upper bound gives a safe step for accelerated gradient descent.
-    const step = 1 / (1 + 0.5 * rows.reduce((sum, row, i) => sum + weights[i] * dot(row, row), 0));
-    for (let iteration = 0; iteration < 500; iteration++) {
-      for (let j = 0; j < size; j++) gradient[j] = j % width === width - 1 ? 0 : point[j];
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        probabilities(point, row, scores);
-        for (let c = 0; c < classCount; c++) {
-          const error = weights[i] * (scores[c] - Number(labels[i] === c));
-          for (let j = 0; j < width; j++) gradient[c * width + j] += error * row[j];
-        }
-      }
+  function gradient(weights, rows) {
+    const result = weights.map((value, i) => penalty(i, weights.length) * value);
+    for (const { row, target, weight } of rows) {
+      const error = weight * (sigmoid(dot(weights, row)) - target);
+      for (let i = 0; i < result.length; i++) result[i] += error * row[i];
+    }
+    return result;
+  }
+
+  function initialWeights(rows) {
+    const width = rows[0].row.length;
+    const step = 1 / (1 + 0.25 * rows.reduce((sum, { row, weight }) => sum + weight * dot(row, row), 0));
+    let estimate = Array(width).fill(0), point = estimate;
+    for (let iteration = 0; iteration < 300; iteration++) {
+      const direction = gradient(point, rows);
+      if (direction.every((value) => Math.abs(value) < 1e-7)) break;
+      const next = point.map((value, i) => value - step * direction[i]);
       const momentum = iteration / (iteration + 3);
-      for (let j = 0; j < size; j++) {
-        const next = point[j] - step * gradient[j];
-        point[j] = next + momentum * (next - solution[j]);
-        solution[j] = next;
+      point = next.map((value, i) => value + momentum * (value - estimate[i]));
+      estimate = next;
+    }
+    return estimate;
+  }
+
+  function randomGenerator(seed) {
+    let state = seed >>> 0;
+    return () => {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let bits = Math.imul(state ^ (state >>> 15), state | 1);
+      bits ^= bits + Math.imul(bits ^ (bits >>> 7), bits | 61);
+      return ((bits ^ (bits >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function boundedProposal(anchor, proposal) {
+    const delta = proposal.map((value, i) => value - anchor[i]);
+    const distance = Math.hypot(...delta);
+    if (distance <= coefficientStep) return proposal;
+    return anchor.map((value, i) => value + delta[i] * coefficientStep / distance);
+  }
+
+  function anneal(anchor, rows, seed) {
+    const random = randomGenerator(seed);
+    let current = anchor, currentLoss = loss(anchor, rows);
+    const direction = gradient(anchor, rows);
+    const norm = Math.hypot(...direction);
+    if (norm < 1e-7) return anchor;
+    // Start the search with a downhill proposal. Every proposal stays within the
+    // same trust radius, including when the Metropolis step accepts a worse fit.
+    const start = anchor.map((value, i) => value - coefficientStep * direction[i] / norm);
+    const startLoss = loss(start, rows);
+    const initialTemp = Math.max(0.002, Math.abs(currentLoss - startLoss));
+    if (startLoss < currentLoss) {
+      current = start;
+      currentLoss = startLoss;
+    }
+    let best = current, bestLoss = currentLoss;
+    for (let iteration = 0; iteration < 96; iteration++) {
+      const progress = iteration / 95;
+      const temperature = initialTemp * 0.01 ** progress;
+      const step = coefficientStep * (0.6 * (1 - progress) + 0.05);
+      const proposal = boundedProposal(anchor, current.map((value) => value + step * (2 * random() - 1)));
+      const proposedLoss = loss(proposal, rows);
+      if (proposedLoss < currentLoss || random() < Math.exp((currentLoss - proposedLoss) / temperature)) {
+        current = proposal;
+        currentLoss = proposedLoss;
       }
-      if (gradient.every((value) => Math.abs(value) < 1e-6)) break;
+      if (proposedLoss < bestLoss) {
+        best = proposal;
+        bestLoss = proposedLoss;
+      }
     }
-    return (row) => probabilities(solution, row, new Float64Array(classCount));
+    return best;
   }
 
-  function feedbackBlend(feedback) {
-    const counts = Array(classCount).fill(0);
-    const gains = Array(classCount).fill(0);
-    for (const { actual, prediction } of feedback) {
-      if (prediction?.policy_version !== policyVersion) continue;
-      counts[actual]++;
-      gains[actual] += Number(prediction.candidate_move === actual) - Number(prediction.seed_move === actual);
+  function couple(margins) {
+    // Project pairwise log odds onto one set of centered class logits. For the
+    // complete, equally weighted graph the least-squares score is the signed
+    // sum of outgoing edges divided by the number of classes.
+    const scores = Array(classCount).fill(0);
+    for (const [index, [first, second]] of pairs.entries()) {
+      scores[first] += margins[index] / classCount;
+      scores[second] -= margins[index] / classCount;
     }
-    const count = counts.reduce((a, b) => a + b, 0);
-    const candidate = count / (count + blendPrior);
-    const eligible = count >= 12 && Math.min(...counts) >= 3 && gains.reduce((a, b) => a + b, 0) >= 2 &&
-      gains.reduce((sum, gain, c) => sum + gain / counts[c], 0) >= 0.3 - 1e-12;
-    const target = eligible ? candidate : 0;
-    const previous = feedback.at(-1)?.prediction?.player_weight ?? 0;
-    return { candidate, weight: Math.min(Math.max(target, previous - blendStep), previous + blendStep) };
+    const peak = Math.max(...scores);
+    const probabilities = scores.map((score) => Math.exp(score - peak));
+    const total = probabilities.reduce((sum, value) => sum + value, 0);
+    return probabilities.map((value) => value / total);
   }
 
-  function best(scores) {
-    return scores.indexOf(Math.max(...scores));
-  }
+  const best = (scores) => scores.indexOf(Math.max(...scores));
 
-  function fit(calibration, feedback = []) {
+  function train(calibration, feedback = []) {
     const dimensions = calibration[0]?.features?.length;
     const validRow = (row) => row?.length === dimensions && row.every?.(Number.isFinite);
     const validLabel = (label) => Number.isInteger(label) && label >= 0 && label < classCount;
-    const seedLabels = calibration.map((item) => item.label);
-    if (calibration.length !== calibrationCount || !dimensions || new Set(seedLabels).size !== classCount ||
+    if (!dimensions || new Set(calibration.map((item) => item.label)).size !== classCount ||
         !calibration.every((item) => validLabel(item.label) && validRow(item.features)) ||
         !feedback.every((item) => validLabel(item.actual) && validRow(item.features))) {
-      throw new Error("The decoder needs 20 valid calibration reads covering all three shapes.");
+      throw new Error("The decoder needs valid calibration reads covering all three shapes.");
     }
     const project = projector(calibration.map((item) => item.features));
-    const seedRows = calibration.map((item) => project(item.features));
-    const seed = classifier(seedRows, seedLabels, seedLabels.map(() => 1));
-    let player = seed;
-    if (feedback.length) {
-      const labels = [...seedLabels, ...feedback.map((item) => item.actual)];
-      const counts = Array(classCount).fill(0);
-      for (const label of seedLabels) counts[label]++;
-      const weights = [...seedLabels.map(() => 18 / calibrationCount), ...feedback.map(() => 0.25)];
-      const mass = Array(classCount).fill(0);
-      labels.forEach((label, i) => { mass[label] += weights[i]; });
-      const adjusted = weights.map((weight, i) => weight * counts[labels[i]] / mass[labels[i]]);
-      player = classifier([...seedRows, ...feedback.map((item) => project(item.features))], labels, adjusted);
+    const startingRows = calibration.map((item) => ({ row: project(item.features), label: item.label, weight: 1 }));
+    const replay = feedback.map((item) => ({ row: project(item.features), label: item.actual, weight: feedbackWeight }));
+    const last = feedback.at(-1);
+    const seed = [], learner = [];
+    for (const [index, [first, second]] of pairs.entries()) {
+      function pairRows(rows) {
+        return rows.filter(({ label }) => label === first || label === second)
+          .map(({ row, label, weight }) => ({ row, target: Number(label === first), weight }));
+      }
+      const initialRows = pairRows(startingRows);
+      const initial = initialWeights(initialRows);
+      seed.push(initial);
+      const saved = last?.prediction?.policy_version === policyVersion ? last.prediction.learner?.[index] : null;
+      const canResume = Array.isArray(saved) && saved.length === initial.length && saved.every(Number.isFinite);
+      const anchor = canResume ? saved : initial;
+      const shouldLearn = last && (!canResume || last.actual === first || last.actual === second);
+      learner.push(shouldLearn
+        ? anneal(anchor, [...initialRows, ...pairRows(replay)], 9741 + 997 * feedback.length + index)
+        : anchor);
     }
-    const blend = feedbackBlend(feedback);
     return {
       predict(row) {
         if (!validRow(row)) throw new Error("The EEG features do not match this calibration.");
         const projected = project(row);
-        const base = seed(projected);
-        const adapted = player(projected);
-        const seedMove = best(base);
-        const candidate = base.map((score, c) => score + blend.candidate * (adapted[c] - score));
-        const displayed = base.map((score, c) => score + blend.weight * (adapted[c] - score));
-        const candidateMove = best(candidate), move = best(displayed);
+        const base = couple(seed.map((weights) => dot(weights, projected)));
+        const margins = learner.map((weights) => dot(weights, projected));
+        const raw = couple(margins);
+        const move = best(raw), seedMove = best(base);
         return {
-          move, confidence: displayed[move], seed_move: seedMove, seed_confidence: base[seedMove],
-          candidate_move: candidateMove, candidate_confidence: candidate[candidateMove],
-          examples: feedback.length, using_player: blend.weight > 0, player_weight: blend.weight,
-          policy_version: policyVersion,
+          move, confidence: raw[move], raw_probabilities: raw,
+          seed_move: seedMove, seed_confidence: base[seedMove],
+          pairwise: pairs.map((shapes, index) => ({ shapes: [...shapes], probability: sigmoid(margins[index]) })),
+          examples: feedback.length, using_player: feedback.length > 0,
+          learner: learner.map((weights) => [...weights]), policy_version: policyVersion,
         };
       },
     };
   }
 
-  window.NPBrowserDecoder = { features, fit };
+  function fit(calibration, feedback = []) {
+    if (calibration.length !== 9 && calibration.length !== 20) {
+      throw new Error("Finish all calibration reads before playing.");
+    }
+    return train(calibration, feedback);
+  }
+
+  function crossValidation(calibration) {
+    return calibration.map((item, index) => {
+      const training = calibration.filter((_, other) => other !== index);
+      const { raw_probabilities } = train(training).predict(item.features);
+      return { actual: item.label, raw_probabilities };
+    });
+  }
+
+  window.NPBrowserDecoder = { features, fit, crossValidation };
 })();

@@ -20,7 +20,7 @@ _STATIC_TYPES = {
     "styles.css": "text/css; charset=utf-8",
     **dict.fromkeys(
         ("api.js", "app.js", "battle.js", "config.js", "input.js", "shapes.js", "session-game.js",
-         "browser-serial.js", "browser-decoder.js", "browser-store.js", "browser-game.js"),
+         "browser-serial.js", "browser-decoder.js", "browser-confidence.js", "browser-store.js", "browser-game.js"),
         "text/javascript; charset=utf-8",
     ),
 }

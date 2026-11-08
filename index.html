@@ -58,6 +58,9 @@ button.huge { font-size: 22px; padding: 14px 40px; }
 .shapeBtn.sel { border-color: var(--good); box-shadow: 0 0 0 1px var(--good); }
 .or { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
 .center { display: flex; gap: 10px; justify-content: center; margin: 18px 0 6px; }
+.metricTable { border-collapse: collapse; width: 100%; }
+.metricTable th, .metricTable td { padding: 6px; text-align: right; border-bottom: 1px solid var(--line); }
+.metricTable th:first-child { text-align: left; }
 .rules { display: flex; flex-wrap: wrap; gap: 18px; } .rule { display: flex; align-items: center; gap: 8px; }
 .list { list-style: none; margin: 0; padding: 0; } .list li { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; } .list li:last-child { border: 0; }
 .list button { padding: 2px 8px; font-size: 12px; margin-left: 6px; }
@@ -82,7 +85,7 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
   <main class="wrap">
     <section class="card" id="bridgeSetup" aria-labelledby="bridgeSetupTitle">
       <h2 id="bridgeSetupTitle">Calibrate before you play</h2>
-      <p>Complete 20 EEG reads before your first round against the computer.</p>
+      <p>Complete nine EEG reads before your first round against the computer.</p>
       <p>Plug NeuroPawn into this computer, then select its USB serial port.</p>
       <button id="btnConnect" class="primary" disabled>Connect NeuroPawn</button>
       <p id="bridgeMessage" class="muted" role="status"></p>
@@ -110,7 +113,7 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
 
     <details class="card hidden" id="setup" open>
       <summary>Calibration setup</summary>
-      <p>Complete 20 EEG reads before your first round against the computer.</p>
+      <p id="calibrationIntro"></p>
       <div class="row">
         <input id="newP1" aria-label="Player name" placeholder="Player name" maxlength="24">
         <button id="btnNew" class="primary">Start calibration</button>
@@ -154,6 +157,7 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
   <script src="input.js"></script>
   <script src="browser-serial.js"></script>
   <script src="browser-decoder.js"></script>
+  <script src="browser-confidence.js"></script>
   <script src="browser-store.js"></script>
   <script src="browser-game.js"></script>
   <script src="session-game.js"></script>

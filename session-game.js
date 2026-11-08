@@ -4,6 +4,7 @@
   const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const cap = (shape) => shape ? shape[0].toUpperCase() + shape.slice(1) : "";
+  const percent = (value, digits = 0) => Number.isFinite(value) ? (100 * value).toFixed(digits) + "%" : "—";
   const progress = (seconds) => `<div class="progress"><i style="animation-duration:${seconds}s"></i></div>`;
   const back = (icon, text, locked = false) =>
     `<div class="back ${locked ? "locked" : ""}"><div>${icon}</div><small>${text}</small></div>`;
@@ -51,6 +52,7 @@
     $("modePill").textContent = browser ? "● NeuroPawn connected over USB" : "● EEG bridge connected (local game)";
     $("modePill").className = "pill live";
     $("btnRematch").textContent = "Next round";
+    $("calibrationIntro").textContent = `Complete ${bridge.calibration_count ?? 20} EEG reads before your first round against the computer.`;
 
     function accept(next) {
       if (!next || typeof next.id !== "string" || !next.calibration || !next.metrics ||
@@ -79,10 +81,16 @@
     }
 
     function guess(round) {
-      const model = round.model === "player" ? "Adaptive" : "Calibration";
-      const percent = Math.round(round.score * 100);
-      return `<p>EEG predicts <b>${cap(round.predicted)}</b> (${percent}%).</p>` +
-        `<p class="muted tiny">${model} model · uncalibrated confidence</p>`;
+      const estimate = round.confidenceReads
+        ? `Estimated confidence · ${round.confidenceReads} held-out calibration reads · ${round.confidenceFeedback} confirmed rounds`
+        : "Uncalibrated model confidence";
+      const matches = round.pairwise?.map(({ shapes, probability }) => {
+        const [first, second] = shapes.map((index) => cap(S.LIST[index]));
+        return `<li>${first} vs ${second} · ${first} ${percent(probability)} · ${second} ${percent(1 - probability)}</li>`;
+      }).join("");
+      return `<p>EEG predicts <b>${cap(round.predicted)}</b> (${percent(round.score)}).</p>` +
+        `<p class="muted tiny">${estimate}</p>` +
+        (matches ? `<details class="tiny"><summary>Shape comparisons</summary><ul class="list">${matches}</ul></details>` : "");
     }
 
     function showShape(shape, size, pop = false) {
@@ -114,19 +122,30 @@
       }
       const revealed = phase === "result";
       return showShape(round.confirmed, 150, revealed) +
-        `<div class="shapeLabel">${cap(round.confirmed)}</div>` + guess(round);
+        `<div class="shapeLabel">${cap(round.confirmed)}</div>` + guess(round) +
+        (browser ? '<p class="muted tiny">Feedback saved. The decoder will use it on your next read.</p>' : "");
     }
 
     function renderMetrics() {
       $("sessionMetrics").classList.toggle("hidden", !state || state.phase === "calibration");
       if (!state || state.phase === "calibration") return;
       const m = state.metrics;
-      const numbers = metrics.map(([field, label, color]) => {
-        const value = Number.isFinite(m[field]) ? (100 * m[field]).toFixed(1) + "%" : "—";
-        return `<span><b style="color:${color}">${label}</b> ${value}</span>`;
-      }).join("");
+      const numbers = metrics.map(([field, label, color]) =>
+        `<span><b style="color:${color}">${label}</b> ${percent(m[field], 1)}</span>`).join("");
+      const last = m.last_confirmed;
+      const latest = last ? `<p>Last confirmed round · EEG guessed <b>${cap(last.predicted)}</b> · you chose <b>${cap(last.actual)}</b></p>` : "";
+      const rows = m.per_shape?.map(({ shape, hits, actual, predicted }) =>
+        `<tr><th scope="row">${cap(shape)}</th><td>${actual}</td><td>${predicted}</td>` +
+        `<td>${percent(predicted ? hits / predicted : null, 1)}</td>` +
+        `<td>${percent(actual ? hits / actual : null, 1)}</td></tr>`).join("");
+      const detail = rows
+        ? `<table class="metricTable tiny"><thead><tr><th scope="col">Shape</th><th scope="col">Actual</th>` +
+          `<th scope="col">Predicted</th><th scope="col">Precision</th><th scope="col">Recall</th></tr></thead>` +
+          `<tbody>${rows}</tbody></table><p class="muted tiny">Macro averages include shapes with a measured denominator.</p>`
+        : "";
       $("sessionMetricsBody").innerHTML = `<div class="row">${numbers}</div>` + trend(m.history ?? []) +
         `<p class="muted tiny">${m.correct} of ${m.total} pre-feedback guesses matched your confirmed shape.</p>` +
+        latest + detail +
         (state.file ? `<p class="muted tiny">Local data file <code>${escape(state.file)}</code></p>` : "");
     }
 
