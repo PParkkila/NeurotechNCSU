@@ -40,7 +40,7 @@ with np.load("runs/web-sessions/SESSION_ID.npz", allow_pickle=False) as session:
     imagery = session["eeg"]
 ```
 
-The hosted page directs players to the local calibration page. The local bridge handles headset capture, session files, and learning. For drag-and-drop deployment, run the build command in `vercel.json` and select `web-dist/`.
+The hosted page offers a local bridge download with macOS and Windows setup instructions. Run the bridge on the laptop connected to NeuroPawn and open the local address it prints. For Vercel Drop, run `python3 scripts/build_web.py` from the project folder and upload `web-dist/`.
 
 ## Play and teach a personal decoder
 

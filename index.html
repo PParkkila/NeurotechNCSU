@@ -16,6 +16,7 @@ h1 { margin: 0; font-size: 26px; } h1 span { color: var(--accent); } h2 { margin
 .pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
 .pill.live { color: var(--good); border-color: var(--good); } .pill.demo { color: var(--warn); border-color: var(--warn); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 14px 0; }
+a { color: var(--good); }
 summary { cursor: pointer; font-weight: 600; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; } .row.c { justify-content: center; }
 input, select { background: #0f1218; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font: inherit; }
@@ -79,8 +80,14 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
     <section class="card" id="bridgeSetup" aria-labelledby="bridgeSetupTitle">
       <h2 id="bridgeSetupTitle">Calibrate before you play</h2>
       <p>Complete 20 EEG reads before your first round against the computer.</p>
-      <p>On the computer connected to NeuroPawn, run this from the project folder with your serial port.</p>
-      <pre><code>python -m imagery web --port YOUR_SERIAL_PORT</code></pre>
+      <div id="bridgeDownload">
+        <p><strong><a href="neuropawn-local.zip" download>Download the local EEG bridge</a></strong> on the laptop with the NeuroPawn connected. Extract it and follow the README for macOS or Windows.</p>
+        <p>Wait for the bridge terminal to print the local game address before opening calibration.</p>
+      </div>
+      <div id="bridgeCommand" class="hidden">
+        <p>In the project folder on the laptop with the NeuroPawn connected, run the bridge with your serial port.</p>
+        <p><code>python -m imagery web --port YOUR_SERIAL_PORT</code></p>
+      </div>
       <div class="row">
         <a id="openLocalCalibration" href="http://127.0.0.1:8765/">Open local calibration</a>
         <button id="bridgeRetry" class="hidden">Check bridge again</button>

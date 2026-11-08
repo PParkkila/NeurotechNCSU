@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "mkdir -p web-dist && cp index.html config.js shapes.js battle.js input.js api.js session-game.js app.js web-dist/",
+  "buildCommand": "python3 scripts/build_web.py",
   "installCommand": null,
   "outputDirectory": "web-dist"
 }

@@ -6,6 +6,10 @@
   $("rules").innerHTML = Object.entries(BEATS).map(([winner, loser]) =>
     `<div class="rule">${S.svg(winner, 40)}<span>${winner[0].toUpperCase() + winner.slice(1)} beats ${loser}</span>${S.svg(loser, 40)}</div>`).join("");
 
+  if (window.NPInput.loopback || window.location.protocol === "file:") {
+    $("bridgeDownload").classList.add("hidden");
+    $("bridgeCommand").classList.remove("hidden");
+  }
   const localLink = $("openLocalCalibration");
   localLink.classList.toggle("hidden", localLink.origin === window.location.origin);
   const bridge = await window.NPInput.bridgeStatus();
