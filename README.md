@@ -84,9 +84,7 @@ If one input clips during rest or imagery, the browser records its input number 
 
 For each channel $c$, `logPowers()` divides the signal into one-second windows of $N=125$ samples with a 63-sample hop. For segment $j$, it subtracts the segment mean $\bar x_{c,j}$ and multiplies by the periodic Hann window $w[n]=\tfrac12(1-\cos(2\pi n/N))$. The discrete Fourier coefficient at bin $k$ is
 
-```math
-X_{c,j}(k)=\sum_{n=0}^{N-1} w[n]\bigl(x_{c,j}[n]-\bar x_{c,j}\bigr)e^{-2\pi i kn/N}.
-```
+$`\displaystyle X_{c,j}(k)=\sum_{n=0}^{N-1} w[n]\bigl(x_{c,j}[n]-\bar x_{c,j}\bigr)e^{-2\pi i kn/N}.`$
 
 Welch's method averages the windowed periodograms, which are proportional to $|X_{c,j}(k)|^2$, to estimate the power spectral density $S_c(k)$. At 1 Hz bin spacing, the four bands sum bins **4–7**, **8–12**, **13–19**, and **20–30 Hz**. For band $B$, define $P_{c,B}=\sum_{k\in B}S_c(k)$. The feature is the log-power difference $`f_{c,B}=\log\bigl(\max(P_{c,B}^{\mathrm{go}},10^{-12})\bigr)-\log\bigl(\max(P_{c,B}^{\mathrm{rest}},10^{-12})\bigr)`$. This measures the change from that trial's own rest period and gives four features per selected input. [`logPowers()` and `features()`](browser-decoder.js) [^welch]
 
@@ -102,9 +100,7 @@ The three comparisons are **circle vs. square**, **triangle vs. circle**, and **
 
 `initialWeights()` fits each classifier by momentum gradient descent on weighted logistic loss with an $L_2$ penalty. With example label $y_i=1$ for the first shape in the pair, margin $m_i=\theta^\top h_i$, and example weight $\omega_i$, the objective is
 
-```math
-L(\theta)=\sum_i \omega_i\bigl[\log(1+e^{m_i})-y_i m_i\bigr]+\tfrac12\sum_d\lambda_d\theta_d^2.
-```
+$`\displaystyle L(\theta)=\sum_i \omega_i\bigl[\log(1+e^{m_i})-y_i m_i\bigr]+\tfrac12\sum_d\lambda_d\theta_d^2.`$
 
 The browser uses $\lambda_d=1$ for feature coefficients and $\lambda_d=0.25$ for the bias. To combine the comparisons, `couple()` treats the margins as signed log-odds with $m_{ba}=-m_{ab}$. The centered class scores $s_a=\tfrac13\sum_{b\ne a}m_{ab}$ are the least-squares fit to the three pairwise score differences. Softmax converts them to one distribution, $p_a=e^{s_a}/\sum_b e^{s_b}$. The largest $p_a$ determines the guess. [`loss()`, `initialWeights()`, and `couple()`](browser-decoder.js) [^logistic]
 
