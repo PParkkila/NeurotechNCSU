@@ -40,26 +40,15 @@
 
   function start(bridge) {
     const EEG = window.NPInput, S = window.NPShapes, B = window.NPBattle;
-    const cfg = window.NEUROPAWN_CONFIG;
     const storageKey = "np_eeg_calibration_session";
-    const setup = $("setup"), newPlayer = $("newP1"), newGame = $("btnNew");
+    const setup = $("setup"), newPlayer = $("newP1"), newGame = $("btnNew"), resume = $("btnResume");
     let state = null, pick = null, busy = null, capturePhase = "starting", error = "", setupError = "";
     let savedSession;
     try { savedSession = localStorage.getItem(storageKey); } catch { /* storage unavailable */ }
 
-    $("eventName").textContent = cfg.EVENT_NAME;
     $("modePill").textContent = "● EEG bridge connected (local game)";
     $("modePill").className = "pill live";
-    setup.querySelector("summary").textContent = "Calibration setup";
-    newPlayer.placeholder = "Player name";
-    $("newP2").classList.add("hidden");
-    $("btnJoin").parentElement.classList.add("hidden");
-    $("role").closest(".row").classList.add("hidden");
-    newGame.parentElement.append($("joinMsg"));
-    $("history").parentElement.classList.add("hidden");
     $("btnRematch").textContent = "Next round";
-    $("rules").innerHTML = Object.entries(cfg.BEATS).map(([a, b]) =>
-      `<div class="rule">${S.svg(a, 40)}<span>${cap(a)} beats ${b}</span>${S.svg(b, 40)}</div>`).join("");
 
     function accept(next) {
       if (!next || typeof next.id !== "string" || !next.calibration || !next.metrics ||
@@ -143,7 +132,9 @@
       newGame.disabled = !!busy;
       newPlayer.disabled = !!busy;
       newGame.textContent = state ? "Start new calibration" : "Start calibration";
-      $("joinMsg").textContent = setupError;
+      resume.classList.toggle("hidden", !!state || !savedSession);
+      resume.disabled = !!busy;
+      $("setupError").textContent = setupError;
       $("arena").classList.toggle("hidden", !state);
       renderMetrics();
       if (!state) return;
@@ -151,6 +142,7 @@
       const { player, phase, calibration, round } = state;
       const capturing = busy === "capture";
       const calibrating = phase === "calibration";
+      $("stage").classList.toggle("calibrating", calibrating);
       const revealed = phase === "result" && !capturing;
       const confirmed = phase === "confirmed";
       const winner = revealed ? B.decide(round.confirmed, round.computer) : null;
@@ -199,7 +191,8 @@
         }
         accept(next);
         if (action === "start" || action === "resume") {
-          try { localStorage.setItem(storageKey, state.id); } catch { /* storage unavailable */ }
+          savedSession = state.id;
+          try { localStorage.setItem(storageKey, savedSession); } catch { /* storage unavailable */ }
           newPlayer.value = state.player;
           setup.open = false;
         }
@@ -207,6 +200,7 @@
         if (action === "start" || action === "resume") {
           setupError = err.message;
           if (action === "resume" && [404, 410].includes(err.status)) {
+            savedSession = null;
             try { localStorage.removeItem(storageKey); } catch { /* storage unavailable */ }
           }
         } else {
@@ -242,6 +236,9 @@
 
     newGame.onclick = () => run("start", () =>
       EEG.sessionAction("session", { player: newPlayer.value.trim() || "Player" }));
+    resume.onclick = () => {
+      if (savedSession) return run("resume", () => EEG.getSession(savedSession));
+    };
     $("stage").addEventListener("click", (event) => {
       const button = event.target.closest("[data-act], [data-pick]");
       if (!button || busy || !state) return;
@@ -261,7 +258,6 @@
     $("btnRematch").onclick = () => { if (state?.phase === "result") return capture(); };
 
     render();
-    if (savedSession) run("resume", () => EEG.getSession(savedSession));
   }
 
   window.NPSessionGame = { start };

@@ -22,13 +22,13 @@ python -m imagery web --port /dev/cu.usbserial1234
 
 Open `http://127.0.0.1:8765` on that computer. The default hardware setup uses gain 4 and board inputs 1, 2, and 6. Pass `--inputs` and `--gain` to match your wiring.
 
-1. Start a session. The game presents 20 shuffled shape prompts with counts of 7, 7, and 6. Read the prompt, start the EEG capture, and picture the prompted shape at GO.
+1. Select **Start calibration**. The game presents 20 shuffled shape prompts with counts of 7, 7, and 6. Read the prompt, start the EEG capture, and picture the prompted shape at GO.
 2. After calibration, privately choose a shape at GO. Confirm or correct the EEG guess before pressing **Battle**. The confirmed shape teaches the decoder and is used against the computer's hidden move. The computer independently picks each shape with probability 1/3.
 3. The dashboard updates after each confirmed gameplay read. Accuracy compares the original prediction with the confirmed shape. Precision and recall are macro averages over the three shapes. A class with a zero denominator contributes zero.
 
 The initial web model trains only on that session's 20 calibration trials. The game scores the prediction made before its label was known and uses the existing slow feedback policy for subsequent rounds. Calibration trials and discarded reads are excluded from the dashboard.
 
-Each session saves a local `.npz` file in `runs/web-sessions/` by default. The archive contains 2 seconds of pre-GO EEG and all 5 seconds after GO per saved read, plus board setup, calibration labels, predictions, corrections, and computer moves. The decoder uses seconds 1–5 after GO. The browser can resume the session after a reload or a bridge restart with the same board settings. Use `--sessions` to choose a different local directory.
+Each session saves a local `.npz` file in `runs/web-sessions/` by default. The archive contains 2 seconds of pre-GO EEG and all 5 seconds after GO per saved read, plus board setup, calibration labels, predictions, corrections, and computer moves. The decoder uses seconds 1–5 after GO. After a reload or bridge restart, select **Resume previous session** to continue with the same board settings. Select **Start calibration** for a new wearer. Use `--sessions` to choose a different local directory.
 
 ```python
 import json
@@ -40,7 +40,7 @@ with np.load("runs/web-sessions/SESSION_ID.npz", allow_pickle=False) as session:
     imagery = session["eeg"]
 ```
 
-The hosted static version supports demo and manual play. The local bridge handles actual headset capture, session files, and learning. For drag-and-drop deployment, run the build command in `vercel.json` and select `web-dist/`.
+The hosted page directs players to the local calibration page. The local bridge handles headset capture, session files, and learning. For drag-and-drop deployment, run the build command in `vercel.json` and select `web-dist/`.
 
 ## Play and teach a personal decoder
 

@@ -32,6 +32,8 @@ button.huge { font-size: 22px; padding: 14px 40px; }
 .banner { text-align: center; font-size: 20px; margin: 10px 0; min-height: 30px; }
 .banner.result { font-size: 26px; font-weight: 700; color: var(--good); }
 .stage { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; }
+.stage.calibrating { grid-template-columns: 1fr; }
+.stage.calibrating .vs, .stage.calibrating #slot2 { display: none; }
 .vs { align-self: center; font-weight: 800; color: var(--muted); letter-spacing: 2px; }
 .slot { margin: 0; min-height: 400px; display: flex; flex-direction: column; transition: box-shadow .3s, border-color .3s; }
 .slot.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -69,33 +71,31 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
         <h1>NeuroPawn <span>Shape Battle</span></h1>
         <div class="muted" id="eventName"></div>
       </div>
-      <span id="modePill" class="pill"></span>
+      <span id="modePill" class="pill demo">EEG calibration required</span>
     </div>
   </header>
 
   <main class="wrap">
-    <details class="card" id="setup" open>
-      <summary>Match setup</summary>
+    <section class="card" id="bridgeSetup" aria-labelledby="bridgeSetupTitle">
+      <h2 id="bridgeSetupTitle">Calibrate before you play</h2>
+      <p>Complete 20 EEG reads before your first round against the computer.</p>
+      <p>On the computer connected to NeuroPawn, run this from the project folder with your serial port.</p>
+      <pre><code>python -m imagery web --port YOUR_SERIAL_PORT</code></pre>
       <div class="row">
-        <input id="newP1" placeholder="Player 1 name" maxlength="24">
-        <input id="newP2" placeholder="Player 2 name" maxlength="24">
-        <button id="btnNew" class="primary">New match</button>
+        <a id="openLocalCalibration" href="http://127.0.0.1:8765/">Open local calibration</a>
+        <button id="bridgeRetry" class="hidden">Check bridge again</button>
       </div>
+      <p id="bridgeMessage" class="muted" role="status"></p>
+    </section>
+
+    <details class="card hidden" id="setup" open>
+      <summary>Calibration setup</summary>
+      <p>Complete 20 EEG reads before your first round against the computer.</p>
       <div class="row">
-        <input id="joinCode" placeholder="Match code" maxlength="8">
-        <button id="btnJoin">Open match</button>
-        <span id="joinMsg" class="err"></span>
-      </div>
-      <div class="row">
-        <label>This device is
-          <select id="role">
-            <option value="both">Both players (shared screen)</option>
-            <option value="1">Player 1 only</option>
-            <option value="2">Player 2 only</option>
-            <option value="display">Display only (Battle + results)</option>
-          </select>
-        </label>
-        <label class="check"><input type="checkbox" id="blind"> Blind mode: hide the EEG prediction and lock it in automatically</label>
+        <input id="newP1" aria-label="Player name" placeholder="Player name" maxlength="24">
+        <button id="btnNew" class="primary">Start calibration</button>
+        <button id="btnResume" class="hidden">Resume previous session</button>
+        <span id="setupError" class="err" role="alert"></span>
       </div>
     </details>
 
@@ -108,13 +108,12 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
         <div class="slot card" id="slot2"></div>
       </div>
       <div class="center">
-        <button id="btnBattle" class="primary huge" disabled>⚔ Battle</button>
+        <button id="btnBattle" class="primary huge hidden" disabled>⚔ Battle</button>
         <button id="btnRematch" class="hidden">Rematch</button>
       </div>
     </section>
 
     <section class="card"><h2>Rules</h2><div id="rules" class="rules"></div></section>
-    <section class="card"><h2>Recent matches</h2><ul id="history" class="list"></ul></section>
     <section id="sessionMetrics" class="card hidden" aria-labelledby="sessionMetricsTitle">
       <h2 id="sessionMetricsTitle">EEG prediction metrics</h2>
       <div id="sessionMetricsBody"></div>
@@ -123,12 +122,10 @@ footer { padding: 18px 16px 40px; font-size: 13px; }
 
   <footer class="wrap muted">NeuroTech NCSU · NeuroPawn · [FILL IN: team / links]</footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="shapes.js"></script>
   <script src="battle.js"></script>
   <script src="input.js"></script>
-  <script src="api.js"></script>
   <script src="session-game.js"></script>
   <script src="app.js"></script>
 </body>
